@@ -13,7 +13,7 @@
 |---|---|
 | 编排框架 | [LangGraph](https://www.langchain.com/langgraph) 1.x |
 | LLM 生态 | [LangChain](https://www.langchain.com/) / LangChain-Core / langchain-openai |
-| 默认 LLM | [Qwen](https://help.aliyun.com/zh/model-studio)(阿里云百炼 OpenAI 兼容接口)· 可一键切换 [DeepSeek](https://platform.deepseek.com/) |
+| 支持 LLM | [Qwen](https://help.aliyun.com/zh/model-studio)(阿里云百炼)· [DeepSeek](https://platform.deepseek.com/),均为 OpenAI 兼容接口 |
 | 联网检索 | [Tavily](https://tavily.com/)(可插拔搜索后端) |
 | 数据校验 | Pydantic v2(结构化输出) |
 | 运行环境 | Python ≥ 3.13 · 包管理 [uv](https://docs.astral.sh/uv/) |
@@ -153,6 +153,10 @@ uv run python run.py "帮我写一份关于英伟达最新 GPU 的调研报告" 
 # DeepSeek
 uv run python run.py "2026 年多模态大模型的进展如何?" --config config/deepseek.yml
 ```
+
+> `--config` 可省略,此时按 `CONFIG_PATH` 环境变量、再回退到 `config/deepseek.yml`。
+> 默认值统一定义在 `deep_research/utils.py` 的 `DEFAULT_CONFIG_PATH`,如需改为默认使用
+> Qwen,把该常量改成 `config/qwen.yml` 即可。
 
 常用选项:
 

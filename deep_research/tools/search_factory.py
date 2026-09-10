@@ -14,7 +14,7 @@ from typing import Any, Dict, Protocol
 from tavily import TavilyClient
 
 from deep_research import logging as dr_logging
-from deep_research.utils import load_config
+from deep_research.utils import load_config, resolve_config_path
 
 DEFAULT_STAGE = "prod"
 logger = dr_logging.get_logger(__name__)
@@ -84,7 +84,7 @@ def _resolve_stage(stage: str | None) -> str:
 def _load_stage_config(stage: str | None) -> Dict[str, Any]:
     """加载stage默认参数"""
     stage_name = _resolve_stage(stage)
-    config_path = os.environ.get("CONFIG_PATH", "config/default.yml")
+    config_path = resolve_config_path()
     cfg = load_config(stage_name=stage_name, config_path=config_path)
     if cfg is None:
         raise SearchConfigError(f"No config found for stage '{stage_name}'")
@@ -205,7 +205,7 @@ def _get_provider(search_cfg: Dict[str, Any]) -> tuple[str, SearchProvider]:
 
     backend = (search_cfg.get("backend") or "tavily").lower()
 
-    cache_key = (os.environ.get("CONFIG_PATH", "config/default.yml"), backend)
+    cache_key = (resolve_config_path(), backend)
     if cache_key in _PROVIDER_CACHE:
         logger.debug("Using cached search provider for backend='%s'", backend)
         return backend, _PROVIDER_CACHE[cache_key]
@@ -235,7 +235,7 @@ def get_search_client(*, stage: str | None = None):
     search_cfg = _get_search_cfg(stage_name)
     backend, provider = _get_provider(search_cfg)
 
-    cache_key = (os.environ.get("CONFIG_PATH", "config/default.yml"), stage_name, backend)
+    cache_key = (resolve_config_path(), stage_name, backend)
     if cache_key in _SEARCH_CLIENT_CACHE:
         logger.debug("Using cached search client for backend='%s' stage='%s'", backend, stage_name)
         return _SEARCH_CLIENT_CACHE[cache_key]

@@ -2,7 +2,7 @@
 #***********************************************
 #      Filename: run.py
 #   Description: 深度调研 Agent 的 CLI 启动入口
-#   Usage:       python run.py "你的调研问题" [--output xxx.md] [--stage prod] [--config config/default.yml]
+#   Usage:       python run.py "你的调研问题" [--output xxx.md] [--stage prod] [--config config/qwen.yml]
 #***********************************************
 
 
@@ -38,6 +38,7 @@ from rich.markdown import Markdown
 
 from deep_research import logging as dr_logging
 from deep_research.states import AgentInputState
+from deep_research.utils import DEFAULT_CONFIG_PATH, resolve_config_path
 
 
 # 默认输出文件名：output_report_YYYY-MM-DD.md
@@ -76,7 +77,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--config",
         default=None,
-        help="配置文件路径（默认 config/default.yml，或环境变量 CONFIG_PATH）。",
+        help=f"配置文件路径（默认 {DEFAULT_CONFIG_PATH}，或环境变量 CONFIG_PATH）。",
     )
     parser.add_argument(
         "--log-level",
@@ -124,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # 注意：必须在设置 STAGE / CONFIG_PATH 之后再 import agent_builder，
     # 因为各智能体的模型在模块 import 时就会创建（并读取 CONFIG_PATH 选择配置文件）。
-    # 若在此前 import，--config 指定的 Key 不会生效，会回退到 config/default.yml。
+    # 若在此前 import，--config 指定的 Key 不会生效，会回退到默认配置文件。
     from deep_research.agent_builder import deep_researcher_builder
 
     console = Console()
@@ -147,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     console.print(
-        f"[dim]使用配置: {os.environ.get('CONFIG_PATH', 'config/default.yml')} · "
+        f"[dim]使用配置: {resolve_config_path()} · "
         f"stage: {os.environ.get('STAGE', 'prod')} · 日志级别: {log_level}[/dim]"
     )
     console.print(

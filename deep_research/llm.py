@@ -14,7 +14,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.runnables import RunnableLambda
 from langchain_core.exceptions import OutputParserException
 
-from deep_research.utils import load_config
+from deep_research.utils import load_config, resolve_config_path
 from deep_research import logging as dr_logging
 
 
@@ -40,7 +40,7 @@ def _load_stage_config(stage_name: str | None, config_path: str | None) -> Dict[
     """加载config文件"""
 
     # Key作为config loader的唯一标识
-    cache_key = (os.environ.get("CONFIG_PATH", "config/default.yml"), stage_name, id(load_config))
+    cache_key = (resolve_config_path(), stage_name, id(load_config))
 
     if cache_key in _CONFIG_CACHE:
         return _CONFIG_CACHE[cache_key]
@@ -141,7 +141,7 @@ def get_chat_model(role: str, *, stage: str | None = None, max_tokens: int | Non
     """
 
     # 获取config路径
-    config_path = os.environ.get("CONFIG_PATH", "config/deepseek.yml")
+    config_path = resolve_config_path()
     resolved_stage = _resolve_stage(stage)
 
     # 加载config.yml
@@ -222,7 +222,7 @@ def get_structured_output_method(role: str, *, stage: str | None = None) -> str 
 
     返回 None 表示使用 langchain 默认方法（json_schema）。
     """
-    config_path = os.environ.get("CONFIG_PATH", "config/deepseek.yml")
+    config_path = resolve_config_path()
     resolved_stage = _resolve_stage(stage)
     cfg = _load_stage_config(resolved_stage, config_path)
     roles_cfg = cfg.get("roles", {})

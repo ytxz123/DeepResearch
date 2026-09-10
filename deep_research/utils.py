@@ -9,6 +9,20 @@ from pathlib import Path
 from datetime import datetime
 
 
+# ===== CONFIG PATH =====
+
+# 默认配置文件路径。
+# 所有模块统一从这里引用（而非各自硬编码），避免出现「LLM 读 deepseek.yml、
+# 搜索读 default.yml」这类不一致——default.yml 并不存在，会导致搜索初始化
+# 直接抛 FileNotFoundError。
+DEFAULT_CONFIG_PATH = "config/deepseek.yml"
+
+
+def resolve_config_path() -> str:
+    """解析当前使用的配置文件路径：环境变量 CONFIG_PATH 优先，否则回退默认值。"""
+    return os.environ.get("CONFIG_PATH", DEFAULT_CONFIG_PATH)
+
+
 # ===== UTILITY FUNCTIONS =====
 
 def get_today_str() -> str:
