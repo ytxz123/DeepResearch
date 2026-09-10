@@ -1,0 +1,71 @@
+# =====================================================================
+# Deep Research Agent 配置 —— DeepSeek (OpenAI 兼容接口)
+# 使用方式:
+#   python run.py "调研问题" --config config/deepseek.yml
+#
+# DeepSeek 官方文档: https://api-docs.deepseek.com/
+# =====================================================================
+stages:
+  prod:
+    cognition:
+      openai:
+        base_url: https://api.deepseek.com
+        api_key: sk-xxx                         # ← 填入你的 DeepSeek API Key
+        default_model: deepseek-v4-flash
+        temperature: 0
+        timeout_seconds: 600
+        # DeepSeek 不支持 langchain 默认的结构化输出 json_schema
+        # （会报 "This response_format type is unavailable now"），
+        # 因此这里指定 json_mode（response_format: {type: json_object}）。
+        # Qwen/百炼等支持 json_schema 的厂商无需此项。
+        structured_output_method: json_mode
+        # DeepSeek 无需 extra_body；保留该键仅为展示结构，值为空会被忽略。
+        extra_body: {}
+    search:
+      backend: tavily
+      tavily:
+        api_key: tvly-xxx                       # ← 填入你的 Tavily API Key
+        base_url: https://api.tavily.com
+        max_results: 3
+        topic: general
+        include_raw_content: true
+        timeout_seconds: 300
+    roles:
+      # 最新 DeepSeek 模型: deepseek-v4-pro（更强）/ deepseek-v4-flash（更快）
+      # 可按质量/成本自行调整; 未配置 max_tokens 时使用 API 默认上限
+      supervisor:
+        backend: openai
+        handle: deepseek-v4-flash
+        timeout_seconds: 600
+      red_team:
+        backend: openai
+        handle: deepseek-v4-flash
+        timeout_seconds: 600
+      context_pruner:
+        backend: openai
+        handle: deepseek-v4-flash
+        timeout_seconds: 600
+      researcher_main:
+        backend: openai
+        handle: deepseek-v4-flash
+        timeout_seconds: 600
+      researcher_summarizer:
+        backend: openai
+        handle: deepseek-v4-flash
+        timeout_seconds: 600
+      researcher_compressor:
+        backend: openai
+        handle: deepseek-v4-flash
+        timeout_seconds: 600
+      writer:
+        backend: openai
+        handle: deepseek-v4-flash
+        timeout_seconds: 600
+      draft:
+        backend: openai
+        handle: deepseek-v4-flash
+        timeout_seconds: 600
+      evaluator:
+        backend: openai
+        handle: deepseek-v4-flash
+        timeout_seconds: 600

@@ -1,0 +1,27 @@
+# ===== 密钥与本地配置（切勿提交）=====
+.env
+.env.*
+!.env.example
+config/keys.local.yml
+
+# ===== 个人工具配置 =====
+.claude/
+
+# ===== 运行产物 =====
+results/
+output_report_*.md
+
+# ===== 文档（非核心代码，不上传）=====
+docs/
+
+# ===== Python =====
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# ===== 虚拟环境 =====
+.venv
+venv/
