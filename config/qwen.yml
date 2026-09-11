@@ -6,7 +6,8 @@ stages:
     cognition:
       openai:
         base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-        api_key: sk-xxx                         # ← 填入你的阿里云百炼 API Key（需与 base_url 同地域）
+        # 推荐写进 .env 的 QWEN_API_KEY；也可直接替换下方默认值
+        api_key: "${QWEN_API_KEY:sk-xxx}"
         default_model: qwen3.8-max
         temperature: 0
         timeout_seconds: 600
@@ -15,7 +16,8 @@ stages:
     search:
       backend: tavily
       tavily:
-        api_key: tvly-xxx                       # ← 填入你的 Tavily API Key
+        # 推荐写进 .env 的 TAVILY_API_KEY；也可直接替换下方默认值
+        api_key: "${TAVILY_API_KEY:tvly-xxx}"
         base_url: https://api.tavily.com
         max_results: 3
         topic: general

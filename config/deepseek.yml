@@ -10,7 +10,8 @@ stages:
     cognition:
       openai:
         base_url: https://api.deepseek.com
-        api_key: sk-xxx                         # ← 填入你的 DeepSeek API Key
+        # 推荐写进 .env 的 DEEPSEEK_API_KEY；也可直接替换下方默认值
+        api_key: "${DEEPSEEK_API_KEY:sk-xxx}"
         default_model: deepseek-v4-flash
         temperature: 0
         timeout_seconds: 600
@@ -24,7 +25,8 @@ stages:
     search:
       backend: tavily
       tavily:
-        api_key: tvly-xxx                       # ← 填入你的 Tavily API Key
+        # 推荐写进 .env 的 TAVILY_API_KEY；也可直接替换下方默认值
+        api_key: "${TAVILY_API_KEY:tvly-xxx}"
         base_url: https://api.tavily.com
         max_results: 3
         topic: general
