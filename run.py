@@ -156,7 +156,10 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     # ---- 运行调研 ----
-    thread = {"configurable": {"thread_id": "1", "recursion_limit": 50}}
+    # recursion_limit 需要覆盖「主管子图的每一步」：每轮迭代最多消耗
+    # supervisor + supervisor_tools + red_team 三步，15 轮即 45 步，
+    # 再加简报/草稿/终稿三步，50 会在调研后段直接抛 GraphRecursionError。
+    thread = {"configurable": {"thread_id": "1", "recursion_limit": 120}}
     try:
         # 图中各节点均为 async 函数，必须用异步 API ainvoke 驱动。
         # 脚本环境用 asyncio.run 创建并运行事件循环（nest_asyncio 已兼容 Jupyter）。

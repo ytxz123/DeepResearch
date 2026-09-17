@@ -16,7 +16,7 @@ from deep_research.llm import get_chat_model
 from deep_research.states import ResearcherState, ResearcherOutputState
 from deep_research.utils import get_today_str
 from deep_research.tools import _tavily_search_tool, _think_tool
-from deep_research.prompts import RESEARCH_AGENT_PROMPT, COMPRESS_RESEARCH_SYSTEM_PROMPT, COMPRESS_RESEARCH_HUMAN_PROMPT 
+from deep_research.prompts import RESEARCH_AGENT_PROMPT, COMPRESS_RESEARCH_SYSTEM_PROMPT, COMPRESS_RESEARCH_HUMAN_PROMPT
 from deep_research import logging as dr_logging
 
 logger = dr_logging.get_logger(__name__)
@@ -42,9 +42,12 @@ def llm_call(state: ResearcherState):
     msg_count = len(state.get("researcher_messages", []))
     logger.debug("llm_call invoked with %d messages", msg_count)
 
+    # 组装系统提示词（此前 {date} 占位符未展开，会原样进入提示词）
+    system_message = RESEARCH_AGENT_PROMPT.format(date=get_today_str())
+
     # 调用大模型
     response = model_with_tools.invoke(
-        [SystemMessage(content=RESEARCH_AGENT_PROMPT)] + state["researcher_messages"]
+        [SystemMessage(content=system_message)] + state["researcher_messages"]
     )
 
     logger.info(

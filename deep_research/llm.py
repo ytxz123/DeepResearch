@@ -184,8 +184,11 @@ def get_chat_model(role: str, *, stage: str | None = None, max_tokens: int | Non
         resolved_timeout,
     )
 
-    # 获取输出最大token数
+    # 获取输出最大token数：调用方入参 > 角色级配置 > 模型级配置
+    # （README 承诺 roles.<role>.max_tokens 可单独指定，此前被跳过、只读模型级配置）
     resolved_max_tokens = max_tokens
+    if resolved_max_tokens is None:
+        resolved_max_tokens = role_cfg.get("max_tokens")
     if resolved_max_tokens is None:
         resolved_max_tokens = _resolve_config_max_tokens(api_cfg, handle)
 

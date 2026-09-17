@@ -12,9 +12,12 @@ stages:
         base_url: https://api.deepseek.com
         # 推荐写进 .env 的 DEEPSEEK_API_KEY；也可直接替换下方默认值
         api_key: "${DEEPSEEK_API_KEY:sk-xxx}"
-        default_model: deepseek-v4-flash
+        # 当前 DeepSeek 仅提供两个模型（可用 GET /models 查询）：
+        #   deepseek-v4-pro —— 更强，擅长长文写作与复杂决策
+        #   deepseek-flash  —— 更快更省，适合高并发的检索循环
+        default_model: deepseek-flash
         temperature: 0
-        timeout_seconds: 600
+        timeout_seconds: 900
         # DeepSeek 不支持 langchain 默认的结构化输出 json_schema
         # （会报 "This response_format type is unavailable now"），
         # 因此这里指定 json_mode（response_format: {type: json_object}）。
@@ -22,52 +25,80 @@ stages:
         structured_output_method: json_mode
         # DeepSeek 无需 extra_body；保留该键仅为展示结构，值为空会被忽略。
         extra_body: {}
+        # 可选：按模型统一指定输出上限（角色级 max_tokens 优先级更高）
+        models:
+          deepseek-flash:
+            max_tokens: 8192
+          deepseek-v4-pro:
+            max_tokens: 16384
     search:
       backend: tavily
       tavily:
         # 推荐写进 .env 的 TAVILY_API_KEY；也可直接替换下方默认值
         api_key: "${TAVILY_API_KEY:tvly-xxx}"
         base_url: https://api.tavily.com
-        max_results: 3
+        # 校招调研需要成规模的公司清单，单次多取几条以提高覆盖
+        # 注意：每条搜索结果消耗 1 个 Tavily 额度，且会送入摘要模型
+        max_results: 5
         topic: general
         include_raw_content: true
         timeout_seconds: 300
     roles:
-      # 最新 DeepSeek 模型: deepseek-v4-pro（更强）/ deepseek-v4-flash（更快）
-      # 可按质量/成本自行调整; 未配置 max_tokens 时使用 API 默认上限
+      # 全部角色统一使用 deepseek-flash（更快更省）。
+      # 如需在质量与成本间取平衡，可把 supervisor / draft / writer / evaluator
+      # 的 handle 换成 deepseek-v4-pro。
+      #
+      # 注意：DeepSeek 为「思考模型」，会先输出 reasoning_content 再输出正文，
+      # 思维链 token 同样计入 max_tokens。上限给太小会导致正文为空
+      # （finish_reason=length 且 content=""），因此写长文的角色必须留足余量。
       supervisor:
         backend: openai
-        handle: deepseek-v4-flash
-        timeout_seconds: 600
+        handle: deepseek-flash
+        max_tokens: 8192
+        timeout_seconds: 900
       red_team:
+        # 输入是「简报+完整草稿」，思维链较长，上限给足
         backend: openai
-        handle: deepseek-v4-flash
+        handle: deepseek-flash
+        max_tokens: 8192
         timeout_seconds: 600
       context_pruner:
         backend: openai
-        handle: deepseek-v4-flash
+        handle: deepseek-flash
+        max_tokens: 8192
         timeout_seconds: 600
       researcher_main:
         backend: openai
-        handle: deepseek-v4-flash
+        handle: deepseek-flash
+        max_tokens: 8192
         timeout_seconds: 600
       researcher_summarizer:
+        # 单页最长 250k 字符，思维链可能较长
         backend: openai
-        handle: deepseek-v4-flash
+        handle: deepseek-flash
+        max_tokens: 8192
         timeout_seconds: 600
       researcher_compressor:
+        # 子代理的压缩结果 = 最终报告直接引用的「研究笔记」，输出较长
         backend: openai
-        handle: deepseek-v4-flash
-        timeout_seconds: 600
+        handle: deepseek-flash
+        max_tokens: 8192
+        timeout_seconds: 900
       writer:
+        # 负责最终报告与草稿精修，长文输出
         backend: openai
-        handle: deepseek-v4-flash
-        timeout_seconds: 600
+        handle: deepseek-flash
+        max_tokens: 16384
+        timeout_seconds: 900
       draft:
+        # 负责研究简报与报告草稿，为整轮调研定调
         backend: openai
-        handle: deepseek-v4-flash
-        timeout_seconds: 600
+        handle: deepseek-flash
+        max_tokens: 16384
+        timeout_seconds: 900
       evaluator:
+        # 输入是「简报+完整草稿」，思维链较长，上限给足
         backend: openai
-        handle: deepseek-v4-flash
+        handle: deepseek-flash
+        max_tokens: 8192
         timeout_seconds: 600

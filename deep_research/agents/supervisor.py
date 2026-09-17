@@ -104,7 +104,7 @@ async def supervisor(state: SupervisorState) -> Command[Literal["supervisor_tool
  
     # 组装系统提示词
     system_message = MULTI_STEP_DENOISE_PROMPT.format(
-        date=get_today_str(), 
+        date=get_today_str(),
         max_concurrent_research_units=max_concurrent_researchers,
         max_researcher_iterations=max_researcher_iterations
     )
@@ -317,7 +317,10 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
             
             return Command(goto=next_step, update=updates)
 
-        except Exception as e:
+        except Exception:
+            # 这里会吞掉子代理/工具链路的任何异常并直接结束研究——必须留下日志，
+            # 否则用户只会拿到一份「看似正常、实则残缺」的报告而无从排查。
+            logger.exception("[SUPERVISOR] supervisor_tools failed, ending research early")
             return Command(
                 goto=END,
                 update={

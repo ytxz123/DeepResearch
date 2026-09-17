@@ -131,6 +131,10 @@ A: 检查 Key 是否与 `base_url` 同地域(中国大陆 `dashscope.aliyuncs.co
 **Q: DeepSeek 报 `This response_format type is unavailable now`?**
 A: DeepSeek 不支持 `json_schema`,配置中需有 `structured_output_method: json_mode`(`config/deepseek.yml` 已内置)。
 
+**Q: 报告写一半就断、或某一步返回空内容?**
+
+A: DeepSeek 的模型是**思考模型**——先输出 `reasoning_content` 再输出正文,且思维链 token 同样计入 `max_tokens`。给某个角色配的 `max_tokens` 太小(例如 100),预算会被思维链吃光,`content` 返回空串(`finish_reason=length`),上层就会拿到空消息。`config/deepseek.yml` 已为写长文的角色(writer/draft)留了 16384 的余量,自行调小时请留意这一点。
+
 **Q: 调研太慢?**
 A: 调低 `max_researcher_iterations`、`max_concurrent_researchers` 或搜索的 `max_results`。
 
