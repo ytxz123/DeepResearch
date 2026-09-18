@@ -130,29 +130,6 @@ Deep_Research/
 
 ---
 
-## 常见问题
-
-**Q: `No config found for stage 'prod'` / `Role 'xxx' not found`?**
-A: 确认 `CONFIG_PATH` 指向的配置文件存在,且其中已配置该角色(需同时有 `backend` 与 `handle`)。
-
-**Q: Qwen 报 401 / 403?**
-A: 检查 Key 是否与 `base_url` 同地域(中国大陆 `dashscope.aliyuncs.com` ↔ 中国大陆 Key)。
-
-**Q: DeepSeek 报 `This response_format type is unavailable now`?**
-A: DeepSeek 不支持 `json_schema`,配置中需有 `structured_output_method: json_mode`(`config/deepseek.yml` 已内置)。
-
-**Q: 报告写一半就断、或某一步返回空内容?**
-
-A: DeepSeek 的模型是**思考模型**,先输出 `reasoning_content` 再输出正文,且思维链 token 同样计入 `max_tokens`。`max_tokens` 配得太小(例如 100)时预算会被思维链吃光,`content` 返回空串(`finish_reason=length`),上层只能拿到空消息。`config/deepseek.yml` 已为写长文的角色留出余量,自行调小时请留意。
-
-**Q: 调研太慢?**
-A: 用 `--depth quick` 跑快速档;或调低搜索的 `max_results`。
-
-**Q: 报告语言?**
-A: 自动跟随提问语言,用中文 / 英文提问即可。
-
----
-
 ## License
 
 [MIT](LICENSE)
