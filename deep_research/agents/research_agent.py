@@ -42,7 +42,7 @@ def llm_call(state: ResearcherState):
     msg_count = len(state.get("researcher_messages", []))
     logger.debug("llm_call invoked with %d messages", msg_count)
 
-    # 组装系统提示词（此前 {date} 占位符未展开，会原样进入提示词）
+    # 组装系统提示词（其中的 {date} 占位符需在此展开）
     system_message = RESEARCH_AGENT_PROMPT.format(date=get_today_str())
 
     # 调用大模型

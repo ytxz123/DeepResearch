@@ -37,16 +37,39 @@ def _expand_env(value):
 
 # ===== CONFIG PATH =====
 
-# 默认配置文件路径。
-# 所有模块统一从这里引用（而非各自硬编码），避免出现「LLM 读 deepseek.yml、
-# 搜索读 default.yml」这类不一致——default.yml 并不存在，会导致搜索初始化
-# 直接抛 FileNotFoundError。
+# 默认配置文件的唯一来源，各模块统一引用，避免默认值漂移。
 DEFAULT_CONFIG_PATH = "config/deepseek.yml"
 
 
 def resolve_config_path() -> str:
     """解析当前使用的配置文件路径：环境变量 CONFIG_PATH 优先，否则回退默认值。"""
     return os.environ.get("CONFIG_PATH", DEFAULT_CONFIG_PATH)
+
+
+# ===== DEPTH PRESET =====
+
+# 调研深度档位：一条指令同时控制研究轮数与并行子代理数。
+# max_iterations 越大，调研越充分，耗时与检索额度消耗也越高。
+DEPTH_PRESETS = {
+    "quick":    {"max_iterations": 3,  "max_concurrent": 2},
+    "standard": {"max_iterations": 8,  "max_concurrent": 3},
+    "deep":     {"max_iterations": 15, "max_concurrent": 3},
+}
+
+DEFAULT_DEPTH = "standard"
+
+
+def resolve_depth(name: str | None = None) -> dict:
+    """解析深度档位：入参 > 环境变量 RESEARCH_DEPTH > 默认档。
+
+    返回值形如 {"max_iterations": 8, "max_concurrent": 3}。
+    """
+    depth = (name or os.environ.get("RESEARCH_DEPTH") or DEFAULT_DEPTH).strip().lower()
+    if depth not in DEPTH_PRESETS:
+        raise ValueError(
+            f"未知的调研深度档位 '{depth}'，可选：{', '.join(DEPTH_PRESETS)}"
+        )
+    return DEPTH_PRESETS[depth]
 
 
 # ===== UTILITY FUNCTIONS =====

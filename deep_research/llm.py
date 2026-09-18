@@ -18,7 +18,6 @@ from deep_research.utils import load_config, resolve_config_path
 from deep_research import logging as dr_logging
 
 
-# 初始化logger
 logger = dr_logging.get_logger(__name__)
 
 # 缓存CONFIG，避免重复导入(config_path, stage, loader_id) 
@@ -67,8 +66,7 @@ def _build_openai_kwargs(
 
     kwargs: Dict[str, Any] = {
         "model": model,
-        # 显式指定 provider，避免 init_chat_model 从模型名推断失败
-        # （例如 qwen-*/deepseek-* 没有内置前缀规则，会导致 ValueError）
+        # 显式指定 provider：qwen-*/deepseek-* 无内置前缀规则，交给 init_chat_model 推断会失败
         "model_provider": "openai",
     }
 
@@ -140,14 +138,11 @@ def get_chat_model(role: str, *, stage: str | None = None, max_tokens: int | Non
         max_tokens: 最大tokens 
     """
 
-    # 获取config路径
     config_path = resolve_config_path()
     resolved_stage = _resolve_stage(stage)
 
-    # 加载config.yml
     cfg = _load_stage_config(resolved_stage, config_path)
 
-    # 获取role配置 
     roles_cfg = cfg.get("roles", {})
     if role not in roles_cfg:
         # 清除cache重新加载一次
@@ -162,7 +157,6 @@ def get_chat_model(role: str, *, stage: str | None = None, max_tokens: int | Non
             f"Role '{role}' not found for stage '{resolved_stage}' using config '{config_path}'. Available: {available}"
         )
 
-    # 解析backend和handle
     role_cfg = roles_cfg[role]
     backend = role_cfg.get("backend")
     handle = role_cfg.get("handle")
@@ -174,7 +168,6 @@ def get_chat_model(role: str, *, stage: str | None = None, max_tokens: int | Non
     if api_cfg is None:
         raise LLMConfigError(f"No cognition config for backend '{backend}'")
 
-    # 获取超时时间
     resolved_timeout = _resolve_timeout_seconds(api_cfg, role_cfg)
     logger.info(
         "Selected cognition backend '%s' for role '%s' with handle '%s' (timeout=%s)",
@@ -184,15 +177,13 @@ def get_chat_model(role: str, *, stage: str | None = None, max_tokens: int | Non
         resolved_timeout,
     )
 
-    # 获取输出最大token数：调用方入参 > 角色级配置 > 模型级配置
-    # （README 承诺 roles.<role>.max_tokens 可单独指定，此前被跳过、只读模型级配置）
+    # 输出上限优先级：调用方入参 > 角色级配置 > 模型级配置
     resolved_max_tokens = max_tokens
     if resolved_max_tokens is None:
         resolved_max_tokens = role_cfg.get("max_tokens")
     if resolved_max_tokens is None:
         resolved_max_tokens = _resolve_config_max_tokens(api_cfg, handle)
 
-    # 新建llm client
     kwargs = _build_kwargs(
         backend=backend,
         handle=handle,

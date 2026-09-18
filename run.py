@@ -11,8 +11,9 @@
 用法示例：
     python run.py "帮我写一份关于英伟达最新 GPU 的调研报告"
     python run.py "2026 年多模态大模型的进展如何？" --output report.md
-    python run.py                          # 不带参数时进入交互式输入
-    python run.py "..." --config config/deepseek.yml   # 切换使用 DeepSeek 配置
+    python run.py "..." --depth quick                  # 快速档，轮数与并行度更小
+    python run.py "..." --config config/qwen.yml       # 切换使用 Qwen 配置
+    python run.py                                      # 不带参数时进入交互式输入
 """
 
 from __future__ import annotations
@@ -24,8 +25,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# Windows 终端默认非 UTF-8 编码,这里统一改为 UTF-8,
-# 避免 argparse --help / 中文提示在控制台出现乱码
+# Windows 终端默认非 UTF-8，统一改为 UTF-8，避免中文提示在控制台乱码
 if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -33,12 +33,18 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+from langgraph.types import Command
 from rich.console import Console
 from rich.markdown import Markdown
 
 from deep_research import logging as dr_logging
 from deep_research.states import AgentInputState
-from deep_research.utils import DEFAULT_CONFIG_PATH, resolve_config_path
+from deep_research.utils import (
+    DEFAULT_CONFIG_PATH,
+    DEFAULT_DEPTH,
+    DEPTH_PRESETS,
+    resolve_config_path,
+)
 
 
 # 默认输出文件名：output_report_YYYY-MM-DD.md
@@ -80,6 +86,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"配置文件路径（默认 {DEFAULT_CONFIG_PATH}，或环境变量 CONFIG_PATH）。",
     )
     parser.add_argument(
+        "--depth",
+        choices=sorted(DEPTH_PRESETS),
+        default=None,
+        help="调研深度档位，同时控制研究轮数与并行子代理数（默认 standard，或环境变量 RESEARCH_DEPTH）。",
+    )
+    parser.add_argument(
+        "--no-clarify",
+        action="store_true",
+        help="关闭开跑前的追问：默认在需求含糊时会先问你一句再开始调研。",
+    )
+    parser.add_argument(
         "--log-level",
         default=None,
         help="日志等级，如 DEBUG / INFO / WARNING（默认取环境变量 DEEP_RESEARCH_LOG_LEVEL，缺省 INFO）。",
@@ -110,6 +127,25 @@ def resolve_question(question: str | None) -> str:
     return line
 
 
+def _ask_user(console: Console, payload: object) -> str:
+    """展示 Agent 的追问并读取用户回答；无输入时视为「没有补充」。"""
+
+    question = payload.get("question", "") if isinstance(payload, dict) else str(payload)
+    answer = ""
+    if question:
+        console.print("\n[bold yellow]开始前需要确认一下：[/bold yellow]")
+        console.print(question)
+        try:
+            answer = input("> ").strip()
+        except (KeyboardInterrupt, EOFError):
+            console.print()
+
+    if not answer:
+        answer = "没有更多补充，请按现有信息开始调研。"
+        console.print(f"[dim]{answer}[/dim]")
+    return answer
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
@@ -117,15 +153,16 @@ def main(argv: list[str] | None = None) -> int:
     log_level = args.log_level or os.environ.get("DEEP_RESEARCH_LOG_LEVEL", "INFO")
     dr_logging.setup_logging(log_level)
 
-    # ---- 环境变量覆盖（与 Notebook / README 行为保持一致） ----
+    # ---- 环境变量覆盖 ----
     if args.stage:
         os.environ["STAGE"] = args.stage
     if args.config:
         os.environ["CONFIG_PATH"] = args.config
+    if args.depth:
+        os.environ["RESEARCH_DEPTH"] = args.depth
 
-    # 注意：必须在设置 STAGE / CONFIG_PATH 之后再 import agent_builder，
-    # 因为各智能体的模型在模块 import 时就会创建（并读取 CONFIG_PATH 选择配置文件）。
-    # 若在此前 import，--config 指定的 Key 不会生效，会回退到默认配置文件。
+    # agent_builder 在 import 时就会创建各智能体的模型并读取研究档位，
+    # 因此上面的环境变量必须先设置好再 import。
     from deep_research.agent_builder import deep_researcher_builder
 
     console = Console()
@@ -147,28 +184,35 @@ def main(argv: list[str] | None = None) -> int:
         console.print("请检查 config 文件中的 LLM 配置（base_url / api_key / handle）。")
         return 1
 
+    depth = os.environ.get("RESEARCH_DEPTH") or DEFAULT_DEPTH
     console.print(
         f"[dim]使用配置: {resolve_config_path()} · "
-        f"stage: {os.environ.get('STAGE', 'prod')} · 日志级别: {log_level}[/dim]"
+        f"stage: {os.environ.get('STAGE', 'prod')} · 深度: {depth} · 日志级别: {log_level}[/dim]"
     )
     console.print(
         "[dim]调研通常需要 10–20 分钟，期间请保持网络畅通。开始执行……[/dim]"
     )
 
-    # ---- 运行调研 ----
-    # recursion_limit 需要覆盖「主管子图的每一步」：每轮迭代最多消耗
-    # supervisor + supervisor_tools + red_team 三步，15 轮即 45 步，
-    # 再加简报/草稿/终稿三步，50 会在调研后段直接抛 GraphRecursionError。
-    thread = {"configurable": {"thread_id": "1", "recursion_limit": 120}}
+    # ---- 运行调研（支持中途追问）----
+    # recursion_limit 需覆盖主管子图的全部步数：每轮迭代最多 3 步
+    # （supervisor + supervisor_tools + red_team），加上追问与首尾节点仍需余量。
+    thread = {
+        "configurable": {
+            "thread_id": "1",
+            "recursion_limit": 120,
+            "clarify": not args.no_clarify,
+        }
+    }
+    payload: object = {"messages": [{"role": "user", "content": question}]}
     try:
-        # 图中各节点均为 async 函数，必须用异步 API ainvoke 驱动。
-        # 脚本环境用 asyncio.run 创建并运行事件循环（nest_asyncio 已兼容 Jupyter）。
-        result = asyncio.run(
-            full_agent.ainvoke(
-                {"messages": [{"role": "user", "content": question}]},
-                config=thread,
-            )
-        )
+        # 图中节点均为 async 函数，必须用 ainvoke 驱动；
+        # 每次 resume 都新起一个事件循环，状态由内存检查点延续。
+        while True:
+            result = asyncio.run(full_agent.ainvoke(payload, config=thread))
+            interrupts = result.get("__interrupt__")
+            if not interrupts:
+                break
+            payload = Command(resume=_ask_user(console, interrupts[0].value))
     except KeyboardInterrupt:
         console.print("\n[bold yellow]已中断，调研未完成。[/bold yellow]")
         return 130

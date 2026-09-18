@@ -3,11 +3,9 @@
 #   Description: 监督智能体
 #***********************************************
 
-"""用于协调多个Sub-Research-Agent的监督。该模块实现了一种监督者模式，其中：
-1. Supervisor Agent协调研究活动并分配任务
-2. 多个Sub-Research-Agent独立地处理特定的子主题
-3. 结果汇总并压缩，用于最终报告
-Supervisor Agent采用并行执行方式来提高效率，同时为每个研究主题保持独立的上下文窗口。
+"""监督者模式：主管拆解问题并并行委派子研究代理，汇总压缩后的结果用于成稿。
+
+每个子主题拥有独立上下文窗口，互不干扰。
 """
 
 
@@ -34,14 +32,14 @@ from deep_research.states import (
     ResearchComplete,
     QualityMetric
 )
-from deep_research.utils import get_today_str
+from deep_research.utils import get_today_str, resolve_depth
 from deep_research.tools import _think_tool, _refine_draft_report_tool
 from deep_research import logging as dr_logging
 
 logger = dr_logging.get_logger(__name__)
 
 
-# 确保async在jupyter环境的兼容性
+# nest_asyncio：兼容 Jupyter 中已存在的事件循环
 try:
     import nest_asyncio
     try:
@@ -55,16 +53,9 @@ except ImportError:
 
 
 def get_notes_from_tool_calls(messages: list[BaseMessage]) -> list[str]:
-    """从Supervisor agent消息历史记录中的 ToolMessage 对象提取Research Notes。
-    当Supervisor通过 ConductResearch tools调用将研究任务委托给子代理时，
-    每个Sub-Agent 都会返回其压缩的研究结果（以 ToolMessage 内容形式）。
-    此函数提取所有此类 ToolMessage 内容，以得到合并后的最终的研究笔记。
+    """提取子代理回传的研究笔记。
 
-    Args：
-        messages：主管对话历史记录中的消息列表
-
-    Return：
-        从ToolMessage对象中提取的Research Notes字符串列表
+    子代理的压缩结果以 ToolMessage 形式保存在主管消息历史中，汇总后即为最终报告的研究素材。
     """
     return [tool_msg.content for tool_msg in filter_messages(messages, include_types="tool")]
 
@@ -77,32 +68,21 @@ supervisor_model = get_chat_model("supervisor")
 supervisor_model_with_tools = supervisor_model.bind_tools(supervisor_tools)
 
 
-# System constants (最大迭代次数/最大并行Sub-Agents)
-max_researcher_iterations = 15 # Calls to think_tool + ConductResearch + refine_draft_report
-max_concurrent_researchers = 3 # 最大并行子agent数
-min_need_repair_score = 6.0    # 评估低于这个分数，就要出发agent修复提醒
+# 研究循环规模由深度档位决定（--depth quick|standard|deep）
+_depth = resolve_depth()
+max_researcher_iterations = _depth["max_iterations"]   # think_tool/ConductResearch/refine 的总调用次数上限
+max_concurrent_researchers = _depth["max_concurrent"]   # 单轮最大并行子代理数
+min_need_repair_score = 6.0                             # 草稿均分低于该值时提醒主管修复
 
 
 # ===== SUPERVISOR NODES =====
 
 async def supervisor(state: SupervisorState) -> Command[Literal["supervisor_tools"]]:
-    """分析研究简报和当前进展
-    功能：
-        - 需要研究哪些主题
-        - 是否开展并行研究
-        - 研究何时完成
-
-    Args：
-        state：当前supervisor状态，包含messages和progress
-
-    Returns：
-        用于跳转到 supervisor_tools 节点并更新状态的命令
-    """
+    """决策本轮研究哪些主题、是否并行委派，以及研究是否收尾。"""
     supervisor_messages = state.get("supervisor_messages", [])
     iteration = state.get("research_iterations", 0)
     logger.info("[SUPERVISOR] supervisor invoked (iteration=%d, messages=%d)", iteration, len(supervisor_messages))
  
-    # 组装系统提示词
     system_message = MULTI_STEP_DENOISE_PROMPT.format(
         date=get_today_str(),
         max_concurrent_research_units=max_concurrent_researchers,
@@ -110,7 +90,7 @@ async def supervisor(state: SupervisorState) -> Command[Literal["supervisor_tool
     )
     messages = [SystemMessage(content=system_message)] + supervisor_messages
  
-    # 动态上下文注入：检查并注入任何未处理的对抗性反馈，实现自我纠正机制。
+    # 未处理的对抗性反馈注入本轮决策，形成自我纠正
     critiques = state.get("active_critiques", [])
     unaddressed = [c for c in critiques if not c.addressed]
     if unaddressed:
@@ -122,7 +102,6 @@ async def supervisor(state: SupervisorState) -> Command[Literal["supervisor_tool
     if state.get("needs_quality_repair"):
         messages.append(SystemMessage(content="上一稿报告质量较低（得分低于7/10），请继续完善。"))
 
-    # 决策调用哪一个工具
     response = await supervisor_model_with_tools.ainvoke(messages)
     logger.info(
         "supervisor model produced tool_calls=%s num_tool_calls=%d",
@@ -130,7 +109,6 @@ async def supervisor(state: SupervisorState) -> Command[Literal["supervisor_tool
         len(response.tool_calls or []),
     )
  
-    # 跳转到supervisor_tools
     return Command(
         goto="supervisor_tools",
         update={
@@ -141,26 +119,11 @@ async def supervisor(state: SupervisorState) -> Command[Literal["supervisor_tool
     )
 
 async def supervisor_tools(state: SupervisorState) -> Command[Literal["supervisor", "__end__"]]:
-    """
-    执行Supervisor决策——继续下一轮研究或者是结束流程。
-
-    功能：
-        - 执行 think_tool 调用以进行思考
-        - 并行启动针对不同主题的research agent
-        - 汇总研究结果
-        - 确定研究何时完成
-
-    参数：
-        state：包含supervisor messages和迭代次数
-
-    返回值：
-        继续下一轮supervisor/结束流程
-    """
+    """执行主管本轮的决策：跑反思、并行派发子研究、精修草稿，或结束研究循环。"""
     supervisor_messages = state.get("supervisor_messages", [])
     research_iterations = state.get("research_iterations", 0)
     most_recent_message = supervisor_messages[-1]
 
-    # 检查是否达到了最大迭代次数或者supervisor是否输出工具调用
     exceeded_iterations = research_iterations >= max_researcher_iterations
     no_tool_calls = not most_recent_message.tool_calls
     research_complete = any(
@@ -168,14 +131,12 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
         for tool_call in most_recent_message.tool_calls
     )
 
-    # 如果超过则退出
+    # 满足任一退出条件即结束研究循环
     if exceeded_iterations or no_tool_calls or research_complete:
-        # 如果满足退出条件，我们会准备最终的、经过整理的notes。
-        # 优先使用结构化的知识库，但如果知识库为空，则使用raw notes。
+        # 子代理的压缩结果以 ToolMessage 形式留存，汇总后即为研究笔记
         final_notes = get_notes_from_tool_calls(state.get("supervisor_messages", []))
-        logger.info("[REPORT] The research is complete, writing the final report.") 
+        logger.info("[REPORT] The research is complete, writing the final report.")
 
-        # 我们返回一个END来结束这个子图，并将最后的notes传递给supervisor。
         return Command(
                 goto=END,
                 update={
@@ -184,7 +145,6 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
         })
 
     else:
-        # 初始化变量
         tool_messages = []
         all_raw_notes = []
         draft_report = state.get("draft_report", "")
@@ -215,7 +175,7 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                 len(refine_report_calls),
             )
 
-            # 调用 think 工具（在调用其他工具之前，必须拿到反思结果）(synchronous)
+            # think_tool 先于其他工具执行：其反思结论会影响本轮委派
             for tool_call in think_tool_calls:
                 observation = _think_tool.invoke(tool_call["args"])
                 tool_messages.append(
@@ -226,7 +186,7 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                     )
                 )
 
-            # 调用 ConductResearch工具 (asynchronous)
+            # 并行调用 ConductResearch，每个主题启动一个独立子代理
             if conduct_research_calls:
                 # 并行启动多个 research agents
                 coros = [
@@ -239,13 +199,9 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                     for tool_call in conduct_research_calls
                 ]
 
-                # 等待所有research agents 返回研究结果
                 tool_results = await asyncio.gather(*coros)
 
-                # 将研究结果格式化为工具消息
-                # 每个research agent都会在 result["compressed_research"] 中返回压缩后的研究结果
-                # 我们将这些压缩后的研究结果写入 ToolMessage 的内容，以便
-                # supervisor agent 可以通过 get_notes_from_tool_calls() 检索到这些结果
+                # 子代理的压缩结果写入 ToolMessage，供 get_notes_from_tool_calls() 汇总
                 research_tool_messages = [
                     ToolMessage(
                         content=result.get("compressed_research", "Error synthesizing research report"),
@@ -262,7 +218,7 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                     for result in tool_results
                 ]
 
-            # 开始调用大模型结合已有信息修正调研报告
+            # 用新发现精修草稿并评估质量
             for tool_call in refine_report_calls: 
                 findings = "\n".join(get_notes_from_tool_calls(state.get("supervisor_messages", [])))
 
@@ -272,7 +228,6 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                     "draft_report": state.get("draft_report", "")
                 })
                 
-                # 执行Critical Step：Self-Evolution的评估
                 eval_result = evaluate_draft_quality(
                         research_brief=state.get("research_brief", ""),
                         draft_report=new_draft
@@ -285,7 +240,6 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                 )
                 logger.info(f"[EVALUATOR] scoing reason: {eval_result.reason}") 
 
-                # 评估报告质量得分：(综合得分+准确率得分+一致性得分) / 3
                 avg_score = (eval_result.comprehensiveness_score + eval_result.accuracy_score + eval_result.coherence_score) / 3
                 
                 # 把质量得分追加到tool message, 供Supervisor Agent参考
@@ -298,7 +252,7 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                 draft_report = new_draft
                 updates["draft_report"] = draft_report
                 
-                # 记录报告质量评分的记录，如果分数低于 min_need_repair_score，把repaire标志位置位true
+                # 低于质量阈值则置位，下一轮主管会收到修复提醒
                 updates["quality_history"] = [QualityMetric(
                     score=avg_score,
                     feedback=eval_result.reason,
@@ -308,18 +262,16 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                 if avg_score < min_need_repair_score:
                     updates["needs_quality_repair"] = True
 
-                # 跳转到self-correction节点 (Red Team)
+                # 转入 Red Team 对抗审查
                 next_step = "red_team"
 
-            # 更新本次迭代状态信息 
             updates["supervisor_messages"] = tool_messages
             updates["raw_notes"] = all_raw_notes
             
             return Command(goto=next_step, update=updates)
 
         except Exception:
-            # 这里会吞掉子代理/工具链路的任何异常并直接结束研究——必须留下日志，
-            # 否则用户只会拿到一份「看似正常、实则残缺」的报告而无从排查。
+            # 该分支会结束整轮研究，必须留日志，否则失败会表现为「报告残缺但无报错」
             logger.exception("[SUPERVISOR] supervisor_tools failed, ending research early")
             return Command(
                 goto=END,

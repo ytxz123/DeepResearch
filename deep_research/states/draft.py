@@ -34,6 +34,8 @@ class AgentState(MessagesState):
     notes: Annotated[list[str], operator.add] = []                          # 已处理和结构化的笔记，可用于生成报告
     draft_report: str                                                       # 研究报告草稿
     final_report: str                                                       # 最终格式化的研究报告
+    clarify_question: str = ""                                              # 待向用户确认的问题，为空表示无需追问
+    clarify_rounds: int = 0                                                 # 已追问轮数，用于限制追问次数
 
 
 # ===== STRUCTURED OUTPUT SCHEMAS =====
@@ -50,4 +52,17 @@ class DraftReport(BaseModel):
 
     draft_report: str = Field(
         description="A draft report that will be used to guide the research.",
+    )
+
+class ClarifyDecision(BaseModel):
+    """追问决策：需求是否足够明确，以及需要向用户确认什么"""
+
+    need_clarification: bool = Field(
+        description="True if asking the user is needed before research starts.",
+    )
+    question: str = Field(
+        description="Question to ask the user. Empty string when need_clarification is False.",
+    )
+    verification: str = Field(
+        description="Short confirmation shown to the user when no clarification is needed.",
     )

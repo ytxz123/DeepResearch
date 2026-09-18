@@ -85,10 +85,11 @@ stages:
         max_tokens: 8192
         timeout_seconds: 900
       writer:
-        # 负责最终报告与草稿精修，长文输出
+        # 负责最终报告与草稿精修。实测成稿单次约需 16k token（含思维链），
+        # 上限贴着这个数会导致正文被截断，故留一倍余量。
         backend: openai
         handle: deepseek-flash
-        max_tokens: 16384
+        max_tokens: 32768
         timeout_seconds: 900
       draft:
         # 负责研究简报与报告草稿，为整轮调研定调

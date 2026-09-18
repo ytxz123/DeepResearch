@@ -31,10 +31,22 @@ uv run python run.py "帮我写一份关于英伟达最新 GPU 的调研报告"
 ```bash
 uv run python run.py                                   # 交互式输入问题
 uv run python run.py "问题" -o report.md                # 指定输出文件
+uv run python run.py "问题" --depth quick                # 快速档（默认 standard）
 uv run python run.py "问题" --config config/qwen.yml     # 换用 Qwen（默认 DeepSeek）
+uv run python run.py "问题" --no-clarify                 # 关闭开跑前的追问
 uv run python run.py "问题" --print-report               # 终端打印报告全文
 uv run python run.py "问题" --log-level DEBUG            # 查看详细日志
 ```
+
+**调研深度**：`--depth` 一条指令同时控制研究轮数与并行子代理数。
+
+| 档位 | 研究轮数 | 并行子代理 | 适用场景 |
+|---|---|---|---|
+| `quick` | 3 | 2 | 先摸清方向，几分钟出结果 |
+| `standard`（默认） | 8 | 3 | 常规调研 |
+| `deep` | 15 | 3 | 尽可能穷尽，耗时与检索额度消耗最高 |
+
+**开跑前追问**：需求含糊时（例如只给一句「帮我调研一下 AI」），系统会先反问你一句再开始，最多追问 3 轮；信息已经足够时不会打断。追问依赖检查点，通过 `--no-clarify` 可关闭；以编程方式调用图时默认不启用。
 
 ---
 
@@ -44,16 +56,17 @@ uv run python run.py "问题" --log-level DEBUG            # 查看详细日志
 用户提问
    │
    ▼
-① write_research_brief   问题 → 可执行的调研提纲
-② write_draft_report     提纲 → 第一版草稿
-③ Supervisor 研究循环（核心，嵌套子图）
+① clarify                需求含糊时先反问（可用 --no-clarify 关闭）
+② write_research_brief   问题 → 可执行的调研提纲
+③ write_draft_report     提纲 → 第一版草稿
+④ Supervisor 研究循环（核心，嵌套子图）
      Supervisor 决策 ──┬─ think_tool           反思进展与信息缺口
                        ├─ ConductResearch ×N   并行派发子研究（最多 3 个）
                        ├─ refine_draft_report  用新发现精修草稿
                        │    └─ Evaluator 三维打分（全面性/准确性/一致性）
                        └─ Red Team 对抗审查 ── 缺陷回注下一轮研究
                           ↓ ResearchComplete / 达到迭代上限
-④ final_report_generation   综合全部发现，带引用成稿
+⑤ final_report_generation   综合全部发现，带引用成稿
    │
    ▼
 Markdown 调研报告（章节结构 + 引用编号 + 参考文献）
@@ -79,6 +92,7 @@ Markdown 调研报告（章节结构 + 引用编号 + 参考文献）
 | `TAVILY_API_KEY` | 搜索密钥 | — |
 | `CONFIG_PATH` | 配置文件路径 | `config/deepseek.yml` |
 | `STAGE` | 使用的 stage | `prod` |
+| `RESEARCH_DEPTH` | 调研深度档位（等价 `--depth`） | `standard` |
 | `DEEP_RESEARCH_LOG_LEVEL` | 日志等级 | `INFO` |
 
 > ⚠️ `.env` 与 `config/*.yml` 中请勿提交真实密钥。
@@ -87,13 +101,7 @@ Markdown 调研报告（章节结构 + 引用编号 + 参考文献）
 
 **角色级模型分配**:`stages.prod.roles` 下每个角色可单独指定 `handle` / `max_tokens` / `timeout_seconds`,便于在质量与成本间取平衡(如主管用强模型、摘要用轻量模型)。
 
-**关键常量**(`deep_research/agents/`):
-
-| 常量 | 默认值 | 含义 |
-|---|---|---|
-| `max_researcher_iterations` | 15 | 研究循环最大迭代轮数 |
-| `max_concurrent_researchers` | 3 | 单轮最多并行子 Agent 数 |
-| `min_need_repair_score` | 6.0 | 草稿均分低于该值触发修复 |
+**研究循环规模**由深度档位决定，档位表见上文。另有 `min_need_repair_score`(默认 6.0)：草稿三维均分低于该值时，Evaluator 会提醒主管在下一轮修复。
 
 **接入自定义搜索后端**:实现 `deep_research.tools.search_factory.SearchProvider` 协议(`build_client` / `search` / `defaults`)并调用 `register_provider` 注册,再把配置里的 `search.backend` 指向它。`deep_research/providers/` 提供了模板。
 
@@ -105,7 +113,7 @@ Markdown 调研报告（章节结构 + 引用编号 + 参考文献）
 Deep_Research/
 ├── config/                  # qwen.yml / deepseek.yml
 ├── deep_research/
-│   ├── agent_builder.py     # 主工作流（4 阶段流水线）
+│   ├── agent_builder.py     # 主工作流（追问 → 简报 → 草稿 → 研究循环 → 成稿）
 │   ├── llm.py               # LLM 客户端工厂（按角色解析配置）
 │   ├── utils.py             # 配置加载 / 环境变量展开
 │   ├── agents/              # supervisor / research / evaluator / red_team / draft
@@ -133,10 +141,10 @@ A: DeepSeek 不支持 `json_schema`,配置中需有 `structured_output_method: j
 
 **Q: 报告写一半就断、或某一步返回空内容?**
 
-A: DeepSeek 的模型是**思考模型**——先输出 `reasoning_content` 再输出正文,且思维链 token 同样计入 `max_tokens`。给某个角色配的 `max_tokens` 太小(例如 100),预算会被思维链吃光,`content` 返回空串(`finish_reason=length`),上层就会拿到空消息。`config/deepseek.yml` 已为写长文的角色(writer/draft)留了 16384 的余量,自行调小时请留意这一点。
+A: DeepSeek 的模型是**思考模型**,先输出 `reasoning_content` 再输出正文,且思维链 token 同样计入 `max_tokens`。`max_tokens` 配得太小(例如 100)时预算会被思维链吃光,`content` 返回空串(`finish_reason=length`),上层只能拿到空消息。`config/deepseek.yml` 已为写长文的角色留出余量,自行调小时请留意。
 
 **Q: 调研太慢?**
-A: 调低 `max_researcher_iterations`、`max_concurrent_researchers` 或搜索的 `max_results`。
+A: 用 `--depth quick` 跑快速档;或调低搜索的 `max_results`。
 
 **Q: 报告语言?**
 A: 自动跟随提问语言,用中文 / 英文提问即可。

@@ -55,7 +55,7 @@ async def red_team_node(state: SupervisorState) -> dict:
     )
     logger.info(f"[RED TEAM] {content}")
 
-    # 返回active_critiques实现动态上下文注入，并把该意见作为System Message注入到Supervisor的消息历史中
+    # 批评写入 active_critiques，同时以 SystemMessage 注入主管消息历史
     return {
         "active_critiques": [critique],
         "critique_nums": critique_nums + 1,

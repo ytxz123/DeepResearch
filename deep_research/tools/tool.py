@@ -1,5 +1,5 @@
 #***********************************************
-#      Filename: tools.py
+#      Filename: tool.py
 #   Description: 可调用工具列表  
 #***********************************************
 
@@ -62,7 +62,7 @@ def _ensure_search_runtime(raise_on_error: bool = True):
 
 
 
-# 提取requests/httpx里面的TIMEOUT EXCEPTION class, 这个异常用来排查问题非常有用
+# 收集各 HTTP 库的超时异常类型。requests/httpx 未安装时降级为空元组
 try:
     import requests
     _REQUESTS_TIMEOUT_EXC = (requests.exceptions.Timeout,)
