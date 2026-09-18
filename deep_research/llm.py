@@ -66,7 +66,7 @@ def _build_openai_kwargs(
 
     kwargs: Dict[str, Any] = {
         "model": model,
-        # 显式指定 provider：qwen-*/deepseek-* 无内置前缀规则，交给 init_chat_model 推断会失败
+        # 显式指定 provider：deepseek-* 无内置前缀规则，交给 init_chat_model 推断会失败
         "model_provider": "openai",
     }
 
@@ -89,8 +89,7 @@ def _build_openai_kwargs(
         kwargs["timeout"] = timeout_seconds
         kwargs["request_timeout"] = timeout_seconds
 
-    # 厂商自定义参数（可选），如 Qwen 的 enable_thinking/thinking_budget，
-    # 会原样透传到请求体的 extra_body 中
+    # 厂商自定义参数（可选），会原样透传到请求体的 extra_body 中
     extra_body = {k: v for k, v in (api_cfg.get("extra_body") or {}).items() if v is not None}
     if extra_body:
         kwargs["extra_body"] = extra_body
@@ -209,10 +208,9 @@ def _resolve_structured_output_method(
 def get_structured_output_method(role: str, *, stage: str | None = None) -> str | None:
     """读取 config 中 role 配置的 structured_output_method。
 
-    不同厂商对结构化输出（response_format）的支持不同：
-    - Qwen/百炼 支持 langchain 默认的 json_schema，无需配置；
-    - DeepSeek 不支持 json_schema（报错 "This response_format type is unavailable now"），
-      需在 config 中配置 `structured_output_method: json_mode`。
+    不同厂商对结构化输出（response_format）的支持不同。DeepSeek 不支持
+    json_schema（报错 "This response_format type is unavailable now"），
+    需在 config 中配置 `structured_output_method: json_mode`。
 
     返回 None 表示使用 langchain 默认方法（json_schema）。
     """
@@ -229,9 +227,9 @@ def get_structured_output_method(role: str, *, stage: str | None = None) -> str 
 def with_structured_output(model, schema, role, *, stage: str | None = None):
     """包装 model.with_structured_output，按 config 指定 method。
 
-    未配置 method 时保持 langchain 默认行为（json_schema），以兼容
-    Qwen/百炼；DeepSeek 等不支持 json_schema 的厂商通过 config 配置
-    `structured_output_method: json_mode` 兼容。
+    未配置 method 时保持 langchain 默认行为（json_schema）；DeepSeek 等
+    不支持 json_schema 的厂商通过 config 配置 `structured_output_method:
+    json_mode` 兼容。
 
     注意：OpenAI/DeepSeek 的 json_object 模式要求 prompt 中必须包含
     "json" 字样，而 langchain 的 json_mode 不会自动注入格式指令。

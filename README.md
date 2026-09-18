@@ -13,7 +13,7 @@
 
 ## 快速开始
 
-**环境要求**:Python ≥ 3.13、[uv](https://docs.astral.sh/uv/)、一个 OpenAI 兼容的 LLM Key([Qwen](https://bailian.console.aliyun.com/) 或 [DeepSeek](https://platform.deepseek.com/))、一个 [Tavily](https://tavily.com/) 搜索 Key。
+**环境要求**:Python ≥ 3.13、[uv](https://docs.astral.sh/uv/)、一个 [DeepSeek](https://platform.deepseek.com/) Key、一个 [Tavily](https://tavily.com/) 搜索 Key。
 
 ```bash
 git clone https://github.com/ytxz123/DeepResearch.git
@@ -32,7 +32,6 @@ uv run python run.py "帮我写一份关于英伟达最新 GPU 的调研报告"
 uv run python run.py                                   # 交互式输入问题
 uv run python run.py "问题" -o report.md                # 指定输出文件
 uv run python run.py "问题" --depth quick                # 快速档（默认 standard）
-uv run python run.py "问题" --config config/qwen.yml     # 换用 Qwen（默认 DeepSeek）
 uv run python run.py "问题" --no-clarify                 # 关闭开跑前的追问
 uv run python run.py "问题" --print-report               # 终端打印报告全文
 uv run python run.py "问题" --log-level DEBUG            # 查看详细日志
@@ -90,7 +89,7 @@ Markdown 调研报告（章节结构 + 引用编号 + 参考文献）
 
 | 环境变量 | 作用 | 默认值 |
 |---|---|---|
-| `QWEN_API_KEY` / `DEEPSEEK_API_KEY` | LLM 密钥 | — |
+| `DEEPSEEK_API_KEY` | LLM 密钥 | — |
 | `TAVILY_API_KEY` | 搜索密钥 | — |
 | `CONFIG_PATH` | 配置文件路径 | `config/deepseek.yml` |
 | `STAGE` | 使用的 stage | `prod` |
@@ -99,9 +98,11 @@ Markdown 调研报告（章节结构 + 引用编号 + 参考文献）
 
 > ⚠️ `.env` 与 `config/*.yml` 中请勿提交真实密钥。
 
-**切换厂商**:`config/qwen.yml` 与 `config/deepseek.yml` 内置两套配置,用 `--config` 切换。也可改 `base_url` 与各角色的 `handle` 接入任意 OpenAI 兼容接口 —— `llm.py` 已固定 `model_provider="openai"`,换厂商无需改代码。
+**接入其他厂商**:改 `config/deepseek.yml` 里的 `base_url` 与各角色的 `handle` 即可指向任意 OpenAI 兼容接口 —— `llm.py` 已固定 `model_provider="openai"`,换厂商无需改代码。若目标厂商支持 `json_schema`,删掉 `structured_output_method: json_mode` 那一行。
 
-**角色级模型分配**:`stages.prod.roles` 下每个角色可单独指定 `handle` / `max_tokens` / `timeout_seconds`,便于在质量与成本间取平衡(如主管用强模型、摘要用轻量模型)。
+**角色级模型分配**:`stages.prod.roles` 下每个角色可单独指定 `handle` / `timeout_seconds`,便于在质量与成本间取平衡(如主管用强模型、摘要用轻量模型)。
+
+> 关于 `max_tokens`:DeepSeek 模型是思考模型，思维链同样计入输出上限，撞限时返回的是空正文而非截断正文；且 langchain 发出的是 DeepSeek 不认的 `max_completion_tokens`。因此配置里刻意不设该值，交由服务端上限兜底。
 
 **研究循环规模**由深度档位决定，档位表见上文。另有 `min_need_repair_score`(默认 6.0)：草稿三维均分低于该值时，Evaluator 会提醒主管在下一轮修复。
 
@@ -113,7 +114,7 @@ Markdown 调研报告（章节结构 + 引用编号 + 参考文献）
 
 ```
 Deep_Research/
-├── config/                  # qwen.yml / deepseek.yml
+├── config/                  # deepseek.yml
 ├── deep_research/
 │   ├── agent_builder.py     # 主工作流（追问 → 简报 → 草稿 → 研究循环 → 成稿）
 │   ├── llm.py               # LLM 客户端工厂（按角色解析配置）

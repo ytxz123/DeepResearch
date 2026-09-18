@@ -2,7 +2,7 @@
 #***********************************************
 #      Filename: run.py
 #   Description: 深度调研 Agent 的 CLI 启动入口
-#   Usage:       python run.py "你的调研问题" [--output xxx.md] [--stage prod] [--config config/qwen.yml]
+#   Usage:       python run.py "你的调研问题" [--output xxx.md] [--stage prod] [--depth deep]
 #***********************************************
 
 
@@ -12,7 +12,7 @@
     python run.py "帮我写一份关于英伟达最新 GPU 的调研报告"
     python run.py "2026 年多模态大模型的进展如何？" --output report.md
     python run.py "..." --depth quick                  # 快速档，轮数与并行度更小
-    python run.py "..." --config config/qwen.yml       # 切换使用 Qwen 配置
+    python run.py "..." --no-clarify                   # 关闭开跑前的追问
     python run.py                                      # 不带参数时进入交互式输入
 """
 

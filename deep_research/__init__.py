@@ -4,7 +4,7 @@
 #***********************************************
 
 # 「懒人模式」入口：只要项目根目录存在 .env，就在导入本包时自动加载，
-# 于是 config/*.yml 里的 ${QWEN_API_KEY} / ${TAVILY_API_KEY} 等占位符
+# 于是 config/*.yml 里的 ${DEEPSEEK_API_KEY} / ${TAVILY_API_KEY} 等占位符
 # 会被自动替换成真实密钥，用户无需改任何 YAML。
 #
 # 使用 load_dotenv(override=False)：已存在的真实环境变量优先，.env 只做补充。
