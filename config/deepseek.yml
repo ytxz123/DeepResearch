@@ -62,11 +62,6 @@ stages:
         handle: deepseek-flash
         max_tokens: 8192
         timeout_seconds: 600
-      context_pruner:
-        backend: openai
-        handle: deepseek-flash
-        max_tokens: 8192
-        timeout_seconds: 600
       researcher_main:
         backend: openai
         handle: deepseek-flash

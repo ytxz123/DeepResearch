@@ -49,11 +49,11 @@ def resolve_config_path() -> str:
 # ===== DEPTH PRESET =====
 
 # 调研深度档位：一条指令同时控制研究轮数与并行子代理数。
-# max_iterations 越大，调研越充分，耗时与检索额度消耗也越高。
+# 轮数上限不宜设高：实测报告质量通常在前几轮就收敛，之后再迭代只是重复检索。
 DEPTH_PRESETS = {
     "quick":    {"max_iterations": 3,  "max_concurrent": 2},
-    "standard": {"max_iterations": 8,  "max_concurrent": 3},
-    "deep":     {"max_iterations": 15, "max_concurrent": 3},
+    "standard": {"max_iterations": 6,  "max_concurrent": 3},
+    "deep":     {"max_iterations": 10, "max_concurrent": 3},
 }
 
 DEFAULT_DEPTH = "standard"

@@ -4,6 +4,7 @@
 #***********************************************
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from typing_extensions import Annotated, List, Literal
 from langchain_core.messages import HumanMessage
@@ -28,6 +29,7 @@ summarization_model = get_chat_model("researcher_summarizer")
 writer_model = get_chat_model("writer")
 MAX_CONTEXT_LENGTH = 250000
 DEFAULT_MAX_CONTEXT = 1000
+MAX_SUMMARY_WORKERS = 5   # 单次搜索内并发做摘要的上限
 search_provider = None
 search_client = None
 search_defaults = None
@@ -217,28 +219,34 @@ def deduplicate_search_results(search_results: List[dict]) -> dict:
 def process_search_results(unique_results: dict) -> dict:
     """ 处理搜索结果（对raw content做summary）
 
+    摘要是一次 LLM 调用，逐条串行会让单次搜索的耗时随结果数线性增长。
+    这里并发执行，并发度由 MAX_SUMMARY_WORKERS 控制。
+
     Args:
-        unique_results: url去重后的search results 
+        unique_results: url去重后的search results
 
     Returns:
         做完summary后的results
     """
-    summarized_results = {}
+    items = list(unique_results.items())
+    if not items:
+        return {}
 
-    for url, result in unique_results.items():
-        # Use existing content if no raw content for summarization
+    def _summarize(item):
+        url, result = item
         if not result.get("raw_content"):
-            content = result['content']
-        else:
-            # Summarize raw content for better processing
-            content = summarize_webpage_content(result['raw_content'][:MAX_CONTEXT_LENGTH])
+            # Use existing content if no raw content for summarization
+            return url, result, result['content']
+        # Summarize raw content for better processing
+        return url, result, summarize_webpage_content(result['raw_content'][:MAX_CONTEXT_LENGTH])
 
-        summarized_results[url] = {
-            'title': result['title'],
-            'content': content
-        }
+    with ThreadPoolExecutor(max_workers=min(MAX_SUMMARY_WORKERS, len(items))) as pool:
+        prepared = list(pool.map(_summarize, items))
 
-    return summarized_results
+    return {
+        url: {'title': result['title'], 'content': content}
+        for url, result, content in prepared
+    }
 
 
 def format_search_output(summarized_results: dict) -> str:
@@ -367,7 +375,18 @@ def refine_draft_report(research_brief: Annotated[str, InjectedToolArg],
     draft_report_obj = writer_model.invoke([HumanMessage(content=draft_report_prompt)])
 
     # 如果返回是message则抽取content字段，否则直接返回
-    return getattr(draft_report_obj, "content", draft_report_obj)
+    refined = getattr(draft_report_obj, "content", draft_report_obj)
+
+    if not str(refined or "").strip():
+        # 精修偶发返回空内容，此时必须保留原草稿：它已累积多轮研究成果，
+        # 被空字符串覆盖会让后续评估与精修全部从头再来。
+        logger.warning(
+            "refine_draft_report returned empty content (finish_reason=%s); keeping the previous draft",
+            getattr(draft_report_obj, "response_metadata", {}).get("finish_reason"),
+        )
+        return draft_report
+
+    return refined
 
 
 # 注册成LangChain工具
