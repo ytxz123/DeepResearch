@@ -221,7 +221,8 @@ def main(argv: list[str] | None = None) -> int:
         f"stage: {os.environ.get('STAGE', 'prod')} · 深度: {depth} · 日志级别: {log_level}[/dim]"
     )
     console.print(
-        "[dim]调研通常需要 10–20 分钟，期间请保持网络畅通。开始执行……[/dim]"
+        "[dim]耗时随深度档位变化较大（quick 约 5–10 分钟，standard 约 30–60 分钟），"
+        "期间请保持网络畅通。开始执行……[/dim]"
     )
 
     # ---- 运行调研（支持中途追问）----

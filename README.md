@@ -24,7 +24,7 @@ cp .env.example .env       # 填入 API Key，无需改任何 YAML
 uv run python run.py "帮我写一份关于英伟达最新 GPU 的调研报告"
 ```
 
-调研约需 **10–20 分钟**,完成后报告保存到 `results/output_report_YYYY-MM-DD.md`,并在终端打印开头摘要。
+调研耗时随深度档位变化较大（`quick` 约 5–10 分钟，`standard` 约 30–60 分钟），完成后报告保存到 `results/output_report_YYYY-MM-DD.md`,并在终端打印开头摘要。
 
 常用选项:
 
