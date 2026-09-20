@@ -147,7 +147,6 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
     else:
         tool_messages = []
         all_raw_notes = []
-        draft_report = state.get("draft_report", "")
         updates = {}
         next_step = "supervisor"
 
@@ -218,16 +217,32 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                     for result in tool_results
                 ]
 
-            # 用新发现精修草稿并评估质量
-            for tool_call in refine_report_calls: 
-                findings = "\n".join(get_notes_from_tool_calls(state.get("supervisor_messages", [])))
+            # 用新发现精修草稿并评估质量。
+            # 一轮里模型可能发多个 refine 调用（提示词要求「每次 ConductResearch 后
+            # 务必 refine」），但 refine_draft_report 的三个入参都是 InjectedToolArg，
+            # 模型根本传不了参数，调用之间没有任何差异，重复执行只是把同一道题算
+            # N 遍。这里只真正执行一次，其余 tool_call 复用同一结果。
+            # 注意不能直接丢掉多余的调用：每个 tool_call_id 都必须有对应的
+            # ToolMessage，否则下一轮调用模型时会因「工具调用没有响应」而报错。
+            if refine_report_calls:
+                if len(refine_report_calls) > 1:
+                    logger.info(
+                        "[SUPERVISOR] collapsed %d duplicate refine calls into a single execution",
+                        len(refine_report_calls),
+                    )
+
+                # findings 必须带上本轮 think/research 刚产出的结果：它们此时还在
+                # tool_messages 里，尚未写回 state，只读 state 会漏掉这一轮的增量。
+                findings = "\n".join(
+                    get_notes_from_tool_calls(list(supervisor_messages) + tool_messages)
+                )
 
                 new_draft = _refine_draft_report_tool.invoke({
                     "research_brief": state.get("research_brief", ""),
                     "findings": findings,
                     "draft_report": state.get("draft_report", "")
                 })
-                
+
                 eval_result = evaluate_draft_quality(
                         research_brief=state.get("research_brief", ""),
                         draft_report=new_draft
@@ -238,20 +253,22 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                     eval_result.accuracy_score,
                     eval_result.coherence_score
                 )
-                logger.info(f"[EVALUATOR] scoing reason: {eval_result.reason}") 
+                logger.info(f"[EVALUATOR] scoing reason: {eval_result.reason}")
 
                 avg_score = (eval_result.comprehensiveness_score + eval_result.accuracy_score + eval_result.coherence_score) / 3
-                
-                # 把质量得分追加到tool message, 供Supervisor Agent参考
-                tool_messages.append(ToolMessage(
-                    content=f"Draft Updated.\nQuality Score: {avg_score}/10.\nJudge Feedback: {eval_result.reason}",
-                    name=tool_call["name"],
-                    tool_call_id=tool_call["id"]
-                ))
 
-                draft_report = new_draft
-                updates["draft_report"] = draft_report
-                
+                # 把质量得分追加到tool message, 供Supervisor Agent参考
+                tool_messages.extend(
+                    ToolMessage(
+                        content=f"Draft Updated.\nQuality Score: {avg_score}/10.\nJudge Feedback: {eval_result.reason}",
+                        name=tool_call["name"],
+                        tool_call_id=tool_call["id"]
+                    )
+                    for tool_call in refine_report_calls
+                )
+
+                updates["draft_report"] = new_draft
+
                 # 低于质量阈值则置位，下一轮主管会收到修复提醒
                 updates["quality_history"] = [QualityMetric(
                     score=avg_score,
