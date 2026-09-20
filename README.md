@@ -73,7 +73,7 @@ uv run python run.py "问题" --log-level DEBUG            # 查看详细日志
 Markdown 调研报告（章节结构 + 引用编号 + 参考文献）
 ```
 
-> **一轮只精修一次**：主管一轮里常发出多个 `refine_draft_report` 调用（提示词要求「每次 ConductResearch 后务必 refine」），但该工具的三个入参都是 `InjectedToolArg`，模型传不了参数，重复调用之间没有任何差异 —— 系统只真正执行一次，其余调用复用同一结果。精修使用的 `findings` 会带上本轮刚检索到的结果。
+> **一轮只精修一次**：主管一轮里可能发出多个 `refine_draft_report` 调用，但该工具的参数由框架注入、调用之间没有差异，系统只执行一次并复用结果。
 
 | 角色 | 职责 |
 |---|---|

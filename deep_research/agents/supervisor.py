@@ -218,12 +218,8 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                 ]
 
             # 用新发现精修草稿并评估质量。
-            # 一轮里模型可能发多个 refine 调用（提示词要求「每次 ConductResearch 后
-            # 务必 refine」），但 refine_draft_report 的三个入参都是 InjectedToolArg，
-            # 模型根本传不了参数，调用之间没有任何差异，重复执行只是把同一道题算
-            # N 遍。这里只真正执行一次，其余 tool_call 复用同一结果。
-            # 注意不能直接丢掉多余的调用：每个 tool_call_id 都必须有对应的
-            # ToolMessage，否则下一轮调用模型时会因「工具调用没有响应」而报错。
+            # 一轮内的多次 refine 入参完全相同（参数由框架注入，模型无法改变），只执行一次、
+            # 其余 tool_call 复用结果；每个 tool_call_id 都必须有 ToolMessage 响应，不能丢弃。
             if refine_report_calls:
                 if len(refine_report_calls) > 1:
                     logger.info(
@@ -231,8 +227,7 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                         len(refine_report_calls),
                     )
 
-                # findings 必须带上本轮 think/research 刚产出的结果：它们此时还在
-                # tool_messages 里，尚未写回 state，只读 state 会漏掉这一轮的增量。
+                # findings 要带上本轮 think/research 的结果：它们还在 tool_messages 里，尚未写回 state
                 findings = "\n".join(
                     get_notes_from_tool_calls(list(supervisor_messages) + tool_messages)
                 )
