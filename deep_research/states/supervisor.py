@@ -28,8 +28,7 @@ class SupervisorState(TypedDict):
     supervisor_messages: Annotated[Sequence[BaseMessage], add_messages] # Supervisor信息,用于协调和传递信息
     research_brief: str                                                 # 指导整体研究方向的详细研究简报
     notes: Annotated[list[str], operator.add] = []                      # 已处理和结构化的笔记，可用于生成最终报告
-    research_iterations: int = 0                                        # 已完成的检索轮数（派发过 ConductResearch 的轮次）
-    supervisor_cycles: int = 0                                          # 主管决策总轮数，兜底上限：只反思不检索时也要能收敛
+    supervisor_rounds: int = 0                                          # 主管决策轮数，上限由深度档位决定
     critique_nums: int = 0                                              # 跟踪红队批评次数的计数器
     draft_report: str                                                   # 报告草稿
     active_critiques: List[Critique]                                    # 尚未被精修消化的红队批评
