@@ -217,7 +217,9 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                                 f"检索额度已用尽（已用 {research_iterations} 轮）。不要再派发新的研究任务，"
                                 "请把已有发现用 refine_draft_report 并入草稿，然后调用 ResearchComplete。"
                             ),
-                            name=tool_call["name"],
+                            # 不用 ConductResearch 作 name：get_research_notes 按名字收集研究笔记，
+                            # 这条提示不是研究发现
+                            name="research_skipped",
                             tool_call_id=tool_call["id"]
                         )
                     )
@@ -266,12 +268,15 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                             result,
                         )
                         content = f"Research failed for this topic: {result}"
+                        # 失败说明同样不能进 findings，改用不会与研究笔记混淆的 name
+                        name = "research_failed"
                     else:
                         content = result.get("compressed_research", "Error synthesizing research report")
+                        name = tool_call["name"]
                     research_tool_messages.append(
                         ToolMessage(
                             content=content,
-                            name=tool_call["name"],
+                            name=name,
                             tool_call_id=tool_call["id"]
                         )
                     )

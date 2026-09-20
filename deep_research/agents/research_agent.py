@@ -33,9 +33,10 @@ model = get_chat_model("researcher_main")
 model_with_tools = model.bind_tools(tools)
 compress_model = get_chat_model("researcher_compressor")
 
-# 单次研究允许的搜索次数上限。子代理的搜索循环没有别的约束
-# （子图不继承主图的 recursion_limit），这里是唯一的兜底。
-# 只计 tavily_search：think_tool 不产生检索开销，不该因反思挤占检索预算。
+# 单次研究允许的搜索次数上限。只计 tavily_search：think_tool 不产生检索开销，
+# 不该因反思挤占检索预算。
+# 子图会继承 run.py 的 recursion_limit（120 步，但用自己的步数计数），撞上它是抛
+# GraphRecursionError、整路子代理的结果被 gather 丢弃，所以这里要留一个能优雅收尾的上限。
 max_search_calls = 40
 
 
