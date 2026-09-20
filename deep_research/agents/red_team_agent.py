@@ -51,11 +51,11 @@ async def red_team_node(state: SupervisorState) -> dict:
     critique = Critique(
         author="Red Team Adversary",
         concern=content,
-        addressed=False
     )
     logger.info(f"[RED TEAM] {content}")
 
-    # 批评写入 active_critiques，同时以 SystemMessage 注入主管消息历史
+    # 批评写入 active_critiques，同时以 SystemMessage 注入主管消息历史。
+    # 这里是覆盖而非追加：只保留最新一条待处理批评，精修产出新草稿后即清空。
     return {
         "active_critiques": [critique],
         "critique_nums": critique_nums + 1,

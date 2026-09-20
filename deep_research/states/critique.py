@@ -1,10 +1,9 @@
 #***********************************************
 #      Filename: critique.py
-#   Description: 批评Agent的格式化输出  
+#   Description: 批评Agent的格式化输出
 #***********************************************
 
-from typing_extensions import TypedDict, Annotated, List, Sequence
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class Critique(BaseModel):
@@ -12,4 +11,3 @@ class Critique(BaseModel):
 
     author: str      # 提出批评的 Agent，如 "Red Team"
     concern: str     # 草稿中发现的逻辑漏洞、偏见或事实错误
-    addressed: bool = Field(default=False, description="Has the supervisor fixed this?")  # 是否已修复

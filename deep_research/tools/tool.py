@@ -127,6 +127,7 @@ def tavily_search_multiple(
 
     # 调用搜索函数，注：这里也可以使用AsyncTavilyClient实现并行调用
     search_docs = []
+    last_error = None
     for query in search_queries:
         try:
             result = provider.search(
@@ -145,7 +146,8 @@ def tavily_search_multiple(
                 effective_timeout,
                 exc,
             )
-            raise
+            last_error = exc
+            continue
         except Exception as exc:
             logger.error(
                 "Search execution failed for query='%s' backend topic='%s': %s",
@@ -153,9 +155,15 @@ def tavily_search_multiple(
                 effective_topic,
                 exc,
             )
-            raise
+            last_error = exc
+            continue
 
         search_docs.append(result)
+
+    # 单个 query 失败只丢弃它自己；全部失败才抛出，
+    # 否则调用方会把「检索不可用」误当成「检索不到结果」。
+    if not search_docs and last_error is not None:
+        raise last_error
 
     return search_docs
 
@@ -353,6 +361,7 @@ def refine_draft_report(research_brief: Annotated[str, InjectedToolArg],
     """根据新的研究发现(findings)完善目前的报告草稿(draft_report)
 
     该工具会综合当前所有研究结果整理输出一份更全面的报告草稿。
+    每轮迭代调用一次即可：它把当前全部研究发现一次性并入草稿，重复调用不会带来新的信息。
 
     Args:
         research_brief：用户的研究请求。

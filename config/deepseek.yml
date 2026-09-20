@@ -21,7 +21,7 @@ stages:
       tavily:
         # 推荐写进 .env 的 TAVILY_API_KEY；也可直接替换下方默认值
         api_key: "${TAVILY_API_KEY:tvly-xxx}"
-        base_url: https://tavily.com
+        base_url: https://api.tavily.com
         # 单次搜索返回的结果数。每条结果消耗 1 次检索额度，并各送一次摘要调用
         max_results: 5
         topic: general

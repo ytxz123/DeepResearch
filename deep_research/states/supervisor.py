@@ -9,15 +9,14 @@
 """
 
 import operator
-from typing_extensions import Annotated, TypedDict, Sequence, TypedDict, List
+from typing_extensions import Annotated, TypedDict, Sequence, List
 
 from langchain_core.messages import BaseMessage
 from langchain_core.tools import tool
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-from deep_research.states.critique import Critique 
-from deep_research.states.quality import QualityMetric
+from deep_research.states.critique import Critique
 
 
 class SupervisorState(TypedDict):
@@ -29,12 +28,11 @@ class SupervisorState(TypedDict):
     supervisor_messages: Annotated[Sequence[BaseMessage], add_messages] # Supervisor信息,用于协调和传递信息
     research_brief: str                                                 # 指导整体研究方向的详细研究简报
     notes: Annotated[list[str], operator.add] = []                      # 已处理和结构化的笔记，可用于生成最终报告
-    research_iterations: int = 0                                        # 跟踪研究迭代次数的计数器
+    research_iterations: int = 0                                        # 已完成的检索轮数（派发过 ConductResearch 的轮次）
+    supervisor_cycles: int = 0                                          # 主管决策总轮数，兜底上限：只反思不检索时也要能收敛
     critique_nums: int = 0                                              # 跟踪红队批评次数的计数器
-    raw_notes: Annotated[list[str], operator.add] = []                  # 从子代理研究中收集的原始未处理研究笔记
     draft_report: str                                                   # 报告草稿
-    active_critiques: Annotated[List[Critique], operator.add]           # 用于存放主动评估的内容  
-    quality_history: Annotated[List[QualityMetric], operator.add]       # 质量评估的历史记录
+    active_critiques: List[Critique]                                    # 尚未被精修消化的红队批评
     needs_quality_repair: bool                                          # 评估员可以设置一个bool标志，向supervisor发出报告草稿质量低的信号
 
 @tool

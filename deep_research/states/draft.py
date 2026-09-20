@@ -30,7 +30,6 @@ class AgentState(MessagesState):
 
     research_brief: Optional[str]                                           # 根据用户对话历史生成的研究简报
     supervisor_messages: Annotated[Sequence[BaseMessage], add_messages]     # 与Supervisor Agent交换的协调消息
-    raw_notes: Annotated[list[str], operator.add] = []                      # 研究阶段收集的原始未处理研究笔记
     notes: Annotated[list[str], operator.add] = []                          # 已处理和结构化的笔记，可用于生成报告
     draft_report: str                                                       # 研究报告草稿
     final_report: str                                                       # 最终格式化的研究报告
@@ -45,13 +44,6 @@ class ResearchQuestion(BaseModel):
 
     research_brief: str = Field(
         description="A research question that will be used to guide the research.",
-    )
-
-class DraftReport(BaseModel):
-    """用于生成结构化草稿报告的字段定义"""
-
-    draft_report: str = Field(
-        description="A draft report that will be used to guide the research.",
     )
 
 class ClarifyDecision(BaseModel):

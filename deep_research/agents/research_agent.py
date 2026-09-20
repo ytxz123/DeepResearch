@@ -10,7 +10,7 @@
 
 from typing_extensions import Literal
 from langgraph.graph import StateGraph, START, END
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, filter_messages
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 
 from deep_research.llm import get_chat_model
 from deep_research.states import ResearcherState, ResearcherOutputState
@@ -33,6 +33,11 @@ model = get_chat_model("researcher_main")
 model_with_tools = model.bind_tools(tools)
 compress_model = get_chat_model("researcher_compressor")
 
+# 单次研究允许的搜索次数上限。子代理的搜索循环没有别的约束
+# （子图不继承主图的 recursion_limit），这里是唯一的兜底。
+# 只计 tavily_search：think_tool 不产生检索开销，不该因反思挤占检索预算。
+max_search_calls = 40
+
 
 # ===== AGENT NODES =====
 
@@ -42,18 +47,27 @@ def llm_call(state: ResearcherState):
     msg_count = len(state.get("researcher_messages", []))
     logger.debug("llm_call invoked with %d messages", msg_count)
 
-    # 组装系统提示词（其中的 {date} 占位符需在此展开）
-    system_message = RESEARCH_AGENT_PROMPT.format(date=get_today_str())
+    # 组装系统提示词（其中的 {date} 等占位符需在此展开）
+    system_message = RESEARCH_AGENT_PROMPT.format(
+        date=get_today_str(),
+        max_search_calls=max_search_calls,
+    )
+
+    # 检索预算用尽后不再挂工具，模型只能给出结论，
+    # 避免留在历史里没人应答的 tool_calls。
+    exhausted = state.get("search_calls", 0) >= max_search_calls
+    active_model = model if exhausted else model_with_tools
 
     # 调用大模型
-    response = model_with_tools.invoke(
+    response = active_model.invoke(
         [SystemMessage(content=system_message)] + state["researcher_messages"]
     )
 
     logger.info(
-        "llm_call produced response tool_calls=%s num_tool_calls=%d",
+        "llm_call produced response tool_calls=%s num_tool_calls=%d (exhausted=%s)",
         bool(response.tool_calls),
         len(response.tool_calls or []),
+        exhausted,
     )
     return {
         "researcher_messages": [response]
@@ -65,12 +79,17 @@ def tool_node(state: ResearcherState):
     tool_calls = state["researcher_messages"][-1].tool_calls
     logger.info("tool_node executing %d tool calls", len(tool_calls or []))
 
-    # 调用工具
+    # 单个工具失败（网络波动、限流、后端报错）不该中断整轮研究：
+    # 把错误作为观察结果交回模型，让它换查询或转向其他方向。
     observations = []
     for tool_call in tool_calls:
         tool = tools_by_name[tool_call["name"]]
         logger.info("Invoking tool %s with args=%s", tool_call["name"], tool_call["args"])
-        observations.append(tool.invoke(tool_call["args"]))
+        try:
+            observations.append(tool.invoke(tool_call["args"]))
+        except Exception as exc:
+            logger.error("Tool %s failed: %s", tool_call["name"], exc)
+            observations.append(f"Tool '{tool_call['name']}' failed: {exc}")
 
     # 获取工具输出
     tool_outputs = [
@@ -81,7 +100,12 @@ def tool_node(state: ResearcherState):
         ) for observation, tool_call in zip(observations, tool_calls)
     ]
 
-    return {"researcher_messages": tool_outputs}
+    searches = sum(1 for tool_call in tool_calls if tool_call["name"] == _tavily_search_tool.name)
+
+    return {
+        "researcher_messages": tool_outputs,
+        "search_calls": state.get("search_calls", 0) + searches,
+    }
 
 def compress_research(state: ResearcherState) -> dict:
     """把研究发现压缩为高价值摘要，只保留有用信息."""
@@ -95,18 +119,8 @@ def compress_research(state: ResearcherState) -> dict:
     # 调用summary模型
     response = compress_model.invoke(messages)
 
-    # 从messages和tools抽取raw notes
-    raw_notes = [
-        str(m.content) for m in filter_messages(
-            state["researcher_messages"], 
-            include_types=["tool", "ai"]
-        )
-    ]
-
-    logger.debug("compress_research produced raw_notes_count=%d", len(raw_notes))
     return {
         "compressed_research": str(response.content),
-        "raw_notes": ["\n".join(raw_notes)]
     }
 
 # ===== ROUTING LOGIC =====
@@ -141,7 +155,7 @@ agent_builder.add_conditional_edges(
         "compress_research": "compress_research", # 返回 final answer
     },
 )
-agent_builder.add_edge("tool_node", "llm_call") # 继续搜索获得更多结果 
+agent_builder.add_edge("tool_node", "llm_call") # 继续搜索获得更多结果
 agent_builder.add_edge("compress_research", END)
 
 # Compile the agent

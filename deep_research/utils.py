@@ -48,12 +48,12 @@ def resolve_config_path() -> str:
 
 # ===== DEPTH PRESET =====
 
-# 调研深度档位：一条指令同时控制研究轮数与并行子代理数。
+# 调研深度档位：一条指令同时控制检索轮数与并行子代理数。
 # 轮数上限不宜设高：实测报告质量通常在前几轮就收敛，之后再迭代只是重复检索。
 DEPTH_PRESETS = {
-    "quick":    {"max_iterations": 3,  "max_concurrent": 2},
-    "standard": {"max_iterations": 6,  "max_concurrent": 3},
-    "deep":     {"max_iterations": 10, "max_concurrent": 3},
+    "quick":    {"max_iterations": 2,  "max_concurrent": 2},
+    "standard": {"max_iterations": 3,  "max_concurrent": 3},
+    "deep":     {"max_iterations": 5,  "max_concurrent": 3},
 }
 
 DEFAULT_DEPTH = "standard"
@@ -62,7 +62,7 @@ DEFAULT_DEPTH = "standard"
 def resolve_depth(name: str | None = None) -> dict:
     """解析深度档位：入参 > 环境变量 RESEARCH_DEPTH > 默认档。
 
-    返回值形如 {"max_iterations": 8, "max_concurrent": 3}。
+    返回值形如 {"max_iterations": 3, "max_concurrent": 3}。
     """
     depth = (name or os.environ.get("RESEARCH_DEPTH") or DEFAULT_DEPTH).strip().lower()
     if depth not in DEPTH_PRESETS:

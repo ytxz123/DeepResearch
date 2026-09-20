@@ -127,6 +127,37 @@ def resolve_question(question: str | None) -> str:
     return line
 
 
+def save_partial_draft(console: Console, agent, config: dict, output_path: str) -> None:
+    """中断或失败时把已积累的草稿落盘。
+
+    草稿里已经含有多轮检索的成果，直接丢掉等于整轮调研白跑。
+    落盘文件带显著标注，避免被当成完整报告使用。
+    """
+
+    try:
+        values = agent.get_state(config).values or {}
+    except Exception as exc:
+        console.print(f"[dim]读取中断时的状态失败: {exc}[/dim]")
+        return
+
+    draft = values.get("draft_report", "")
+    if not draft:
+        return
+
+    partial_path = output_path + ".partial.md"
+    try:
+        Path(partial_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(partial_path, "w", encoding="utf-8") as fh:
+            fh.write("# 【未完成】调研中断时的草稿\n\n")
+            fh.write("> 本轮调研未跑完。以下是中断时已积累的草稿，未经终稿整理，请勿直接当作结论使用。\n\n")
+            fh.write(draft)
+    except OSError as exc:
+        console.print(f"[dim]草稿落盘失败: {exc}[/dim]")
+        return
+
+    console.print(f"[yellow]已保留中断时的草稿：{partial_path}[/yellow]")
+
+
 def _ask_user(console: Console, payload: object) -> str:
     """展示 Agent 的追问并读取用户回答；无输入时视为「没有补充」。"""
 
@@ -204,6 +235,7 @@ def main(argv: list[str] | None = None) -> int:
         }
     }
     payload: object = {"messages": [{"role": "user", "content": question}]}
+    output_path = args.output or default_output_path()
     try:
         # 图中节点均为 async 函数，必须用 ainvoke 驱动；
         # 每次 resume 都新起一个事件循环，状态由内存检查点延续。
@@ -215,19 +247,21 @@ def main(argv: list[str] | None = None) -> int:
             payload = Command(resume=_ask_user(console, interrupts[0].value))
     except KeyboardInterrupt:
         console.print("\n[bold yellow]已中断，调研未完成。[/bold yellow]")
+        save_partial_draft(console, full_agent, thread, output_path)
         return 130
     except Exception as exc:
         console.print(f"\n[bold red]调研执行失败:[/bold red] {exc}")
+        save_partial_draft(console, full_agent, thread, output_path)
         return 1
 
     # ---- 输出报告 ----
     final_report = result.get("final_report", "")
     if not final_report:
         console.print("[bold yellow]未生成最终报告（final_report 为空）。[/bold yellow]")
+        save_partial_draft(console, full_agent, thread, output_path)
         return 1
 
     # 保存文件
-    output_path = args.output or default_output_path()
     try:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as fh:

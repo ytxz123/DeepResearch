@@ -16,14 +16,14 @@ from typing_extensions import Literal
 from rich.markdown import Markdown
 from rich.console import Console
 
-from langchain_core.messages import AIMessage, HumanMessage, get_buffer_string
+from langchain_core.messages import HumanMessage, get_buffer_string
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Command
 
 from deep_research import logging as dr_logging
 from deep_research.llm import get_chat_model, with_structured_output
-from deep_research.prompts import RESEARCH_BRIEF_PROMPT, DRAFT_REPORT_PROMPT  
-from deep_research.states import AgentState, ResearchQuestion, AgentInputState, DraftReport
+from deep_research.prompts import RESEARCH_BRIEF_PROMPT, DRAFT_REPORT_PROMPT
+from deep_research.states import AgentState, ResearchQuestion, AgentInputState
 from deep_research.utils import get_today_str 
 
 logger = dr_logging.get_logger(__name__)
@@ -68,22 +68,23 @@ def write_draft_report(state: AgentState) -> Command[Literal["__end__"]]:
         bool(state.get("research_brief")),
     )
 
-    # 组装prompt 
+    # 组装prompt
     research_brief = state.get("research_brief", "")
     draft_report_prompt = DRAFT_REPORT_PROMPT.format(
         research_brief=research_brief,
         date=get_today_str()
     )
 
-    # 结构化输出
-    structured_output_model = with_structured_output(draft_model, DraftReport, "draft")
-    response = structured_output_model.invoke([HumanMessage(content=draft_report_prompt)])
-    logger.debug("write_draft_report produced draft_report length=%d", len(response.draft_report))
+    # 整篇草稿是长文，直接取正文：走结构化输出要把它塞进 JSON 字符串字段，
+    # 思考模型的 JSON 偶发解析失败会让整轮调研中断。
+    response = draft_model.invoke([HumanMessage(content=draft_report_prompt)])
+    draft_report = str(response.content or "").strip()
+    logger.debug("write_draft_report produced draft_report length=%d", len(draft_report))
 
     return {
         "research_brief": research_brief,
-        "draft_report": response.draft_report, 
-        "supervisor_messages": ["Here is the draft report: " + response.draft_report, research_brief]
+        "draft_report": draft_report,
+        "supervisor_messages": ["Here is the draft report: " + draft_report, research_brief]
     }
 
 
