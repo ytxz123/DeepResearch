@@ -92,9 +92,9 @@ max_researcher_iterations = _depth["max_iterations"]   # 检索轮数上限（�
 max_concurrent_researchers = _depth["max_concurrent"]   # 单轮最大并行子代理数
 min_need_repair_score = 6.0                             # 草稿均分低于该值时提醒主管修复
 
-# 决策轮数兜底上限：正常收敛靠 max_researcher_iterations，
-# 这一条防止主管只调 think_tool、迟迟不派发检索时一直空转。
-max_supervisor_cycles = max_researcher_iterations * 2 + 2
+# 决策轮数兜底上限：正常收敛靠 max_researcher_iterations，这一条只拦跑飞的情况。
+# 一个检索轮通常还要配一次精修，所以上限按每轮 3 个 cycle 留余量。
+max_supervisor_cycles = max_researcher_iterations * 3 + 3
 
 
 # ===== SUPERVISOR NODES =====
@@ -155,10 +155,12 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
     research_iterations = state.get("research_iterations", 0)
     most_recent_message = supervisor_messages[-1]
 
-    exceeded_iterations = (
-        research_iterations >= max_researcher_iterations
-        or state.get("supervisor_cycles", 0) >= max_supervisor_cycles
-    )
+    # 检索额度用尽后不再派发新检索，但本轮的精修照常执行，
+    # 否则最后一轮检索的结果永远进不了草稿
+    research_budget_exhausted = research_iterations >= max_researcher_iterations
+    # 决策轮兜底只拦跑飞的情况，不参与正常收敛
+    cycle_budget_exhausted = state.get("supervisor_cycles", 0) >= max_supervisor_cycles
+
     no_tool_calls = not most_recent_message.tool_calls
     research_complete = any(
         tool_call["name"] == "ResearchComplete"
@@ -166,7 +168,7 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
     )
 
     # 满足任一退出条件即结束研究循环
-    if exceeded_iterations or no_tool_calls or research_complete:
+    if cycle_budget_exhausted or no_tool_calls or research_complete:
         # 子代理的压缩结果以 ToolMessage 形式留存，汇总后即为研究笔记
         final_notes = get_research_notes(state.get("supervisor_messages", []))
         logger.info("[REPORT] The research is complete, writing the final report.")
@@ -199,6 +201,27 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                 tool_call for tool_call in most_recent_message.tool_calls
                 if tool_call["name"] == "refine_draft_report"
             ]
+
+            # 检索额度用尽后拒绝新的检索派发，本轮的 think/refine 照常执行。
+            # 每个 tool_call_id 都必须有 ToolMessage 响应，被拒的也要回一条。
+            if conduct_research_calls and research_budget_exhausted:
+                logger.info(
+                    "[SUPERVISOR] research budget exhausted (%d rounds); refusing %d new research calls",
+                    research_iterations,
+                    len(conduct_research_calls),
+                )
+                for tool_call in conduct_research_calls:
+                    tool_messages.append(
+                        ToolMessage(
+                            content=(
+                                f"检索额度已用尽（已用 {research_iterations} 轮）。不要再派发新的研究任务，"
+                                "请把已有发现用 refine_draft_report 并入草稿，然后调用 ResearchComplete。"
+                            ),
+                            name=tool_call["name"],
+                            tool_call_id=tool_call["id"]
+                        )
+                    )
+                conduct_research_calls = []
 
             logger.info(
                 "[SUPERVISOR] supervisor_tools executing think=%d conduct=%d refine=%d",

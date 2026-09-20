@@ -17,7 +17,10 @@ MULTI_STEP_DENOISE_PROMPT = """您是一位研究主管。您的任务是调用�
 2. **refine_draft_report**：使用 ConductResearch 的发现完善报告草稿
 3. **ResearchComplete**：表示研究已完成
 4. **think_tool**：用于研究过程中的反思和战略规划
-**重要提示：在调用 ConductResearch 之前，请使用 think_tool 来规划您的研究方法；在本轮检索返回、完成本轮 refine_draft_report 之后，也请使用 think_tool 来评估研究进展。**
+**重要提示：think_tool 只记录您的判断，不要让它单独占一轮，把它和对应的动作写在同一个响应里：**
+- 规划研究 → think_tool 与 ConductResearch 同一次发出
+- 评估结果 → think_tool 与 refine_draft_report 同一次发出
+（think_tool 的返回值就是您刚写的内容，等不来新信息，只会多花一个轮次。）
 **并行研究**：当您确定了多个可以同时探索的独立子主题时，请在单个响应中多次调用 ConductResearch 工具，以启用并行研究。对于比较性或多方面的问题，这种方法比顺序研究更高效。每次迭代最多使用 {max_concurrent_research_units} 个并行代理。
 </可用的工具>
 
@@ -25,7 +28,7 @@ MULTI_STEP_DENOISE_PROMPT = """您是一位研究主管。您的任务是调用�
 像一位时间资源有限的研究经理一样思考。请遵循以下步骤：
 1. **仔细阅读问题** - 用户需要哪些具体信息？
 2. **决定如何分配研究任务** - 仔细考虑问题并决定如何分配研究任务。是否存在多个可以独立进行的研究方向？是否可以同时进行探索？
-3. **本轮所有 ConductResearch 返回后，暂停并评估** - 我是否有足够的信息来回答问题？还缺少什么？然后调用**一次** refine_draft_report，把本轮的全部新发现一次性并入草稿报告。它是对整轮结果的收尾动作，不是给每个子任务各配一次——一轮里重复调用没有意义。
+3. **本轮所有 ConductResearch 返回后评估并精修** - 我是否掌握了足够的信息？还缺什么？把评估写进 think_tool，与 refine_draft_report 同一次发出，将本轮全部新发现并入草稿。
 4. **仅当 ConductResearch 工具的调查结果完整时才调用 CompleteResearch。不应基于草稿报告。即使草稿报告看起来完整，也应继续进行研究，直到所有研究结果都完整为止。您可以通过运行 ConductResearch 工具生成各种研究问题，查看是否能找到任何新的发现，来判断研究结果是否完整。如果消息历史记录中的人工消息语言不是英语，则应始终运行 ConductResearch 工具生成另一轮各种研究问题，以检查其全面性，从而判断研究结果是否完整。
 </Instructions>
 
@@ -33,18 +36,18 @@ MULTI_STEP_DENOISE_PROMPT = """您是一位研究主管。您的任务是调用�
 **任务委派预算**（防止过度委派）：
 - **倾向于单一代理** - 为了简化操作，除非用户请求具有明显的并行化潜力
 - **当您能够自信地回答问题时就停止** - 不要为了追求完美而不断委托他人进行研究
-- **限制检索轮数** - 完成 {max_researcher_iterations} 轮检索后务必停止，不要再派发新的研究任务
+- **限制检索轮数** - 完成 {max_researcher_iterations} 轮检索后务必停止派发新检索；但最后一轮的发现仍要并入草稿：先完成一次 refine_draft_report，再调用 ResearchComplete 收尾
 - **每轮最多精修一次** - 无论本轮并行派发了几个 ConductResearch，都只在本轮检索全部返回后调用一次 refine_draft_report
 </硬性要求>
 
 <展示思考过程>
-在调用 ConductResearch 工具之前，请使用 think_tool 规划您的方法：
-- 是否可以将任务分解为更小的子任务？
-每次调用 ConductResearch 工具后，请使用 think_tool 分析结果：
-- 我找到了哪些关键信息？
-- 缺少哪些信息？
+规划研究时：
+- 本轮要补齐草稿里的哪些不足？是否可以分解为更小的子任务？
+
+评估结果时：
+- 我找到了哪些关键信息？缺少哪些信息？
 - 我是否掌握足够的信息来全面回答问题？
-- 我应该委托他人进行更多研究还是调用 ResearchComplete？
+- 我应该继续委托研究还是调用 ResearchComplete？
 </展示思考过程>
 
 <扩展规则>

@@ -99,15 +99,21 @@ async def final_report_generation(state: AgentState):
     report_text = (final_report.content or "").strip()
 
     if not report_text:
-        # 成稿偶发返回空内容。草稿此时已经过多轮精修，直接退回草稿，
-        # 避免整轮调研因为最后一步而全部作废；同时记录可诊断的元信息。
+        # 成稿偶发返回空内容。草稿此时已经过多轮精修，退回草稿避免整轮调研作废；
+        # 但必须标注清楚，否则会以「调研完成」的名义交付一份落后于最新研究的草稿。
         logger.warning(
             "final report generation returned empty content "
             "(finish_reason=%s, refusal=%s); falling back to the draft",
             final_report.response_metadata.get("finish_reason"),
             final_report.additional_kwargs.get("refusal"),
         )
-        report_text = state.get("draft_report", "")
+        draft = state.get("draft_report", "")
+        if draft:
+            report_text = (
+                "# 【终稿生成失败，以下为草稿】\n\n"
+                "> 终稿模型返回了空内容，本文件直接使用最后一版草稿，"
+                "可能未包含最后一轮研究结果。\n\n" + draft
+            )
 
     return {
         "final_report": report_text,
