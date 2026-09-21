@@ -3,7 +3,6 @@
 #   Description: 报告评估结果结构化输出 
 #***********************************************
 
-from typing_extensions import TypedDict, Annotated, List, Sequence
 from pydantic import BaseModel, Field
 
 

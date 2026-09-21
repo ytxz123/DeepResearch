@@ -2,7 +2,7 @@
 #***********************************************
 #      Filename: run.py
 #   Description: 深度调研 Agent 的 CLI 启动入口
-#   Usage:       python run.py "你的调研问题" [--output xxx.md] [--stage prod] [--depth deep]
+#   Usage:       python run.py "你的调研问题" [--output xxx.md] [--stage prod] [--depth quick]
 #***********************************************
 
 
@@ -38,7 +38,6 @@ from rich.console import Console
 from rich.markdown import Markdown
 
 from deep_research import logging as dr_logging
-from deep_research.states import AgentInputState
 from deep_research.utils import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_DEPTH,
@@ -221,7 +220,7 @@ def main(argv: list[str] | None = None) -> int:
         f"stage: {os.environ.get('STAGE', 'prod')} · 深度: {depth} · 日志级别: {log_level}[/dim]"
     )
     console.print(
-        "[dim]耗时随深度档位变化较大（quick 约 5–10 分钟，standard 约 30–60 分钟），"
+        "[dim]耗时随深度档位变化较大（quick 约 10–20 分钟，standard 约 1–2 小时），"
         "期间请保持网络畅通。开始执行……[/dim]"
     )
 

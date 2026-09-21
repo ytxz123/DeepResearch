@@ -3,7 +3,6 @@
 #   Description: 可调用工具列表  
 #***********************************************
 
-import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from typing_extensions import Annotated, List, Literal
@@ -30,6 +29,9 @@ writer_model = get_chat_model("writer")
 MAX_CONTEXT_LENGTH = 250000
 DEFAULT_MAX_CONTEXT = 1000
 MAX_SUMMARY_WORKERS = 5   # 单次搜索内并发做摘要的上限
+# 同一 URL 只摘要一次：不同 query 命中同一页面时直接复用，
+# 省一次调用，也让各子代理对同一页面看到一致的摘要。
+_SUMMARY_CACHE: dict[str, str] = {}
 search_provider = None
 search_client = None
 search_defaults = None
@@ -246,7 +248,11 @@ def process_search_results(unique_results: dict) -> dict:
             # Use existing content if no raw content for summarization
             return url, result, result['content']
         # Summarize raw content for better processing
-        return url, result, summarize_webpage_content(result['raw_content'][:MAX_CONTEXT_LENGTH])
+        summary = _SUMMARY_CACHE.get(url)
+        if summary is None:
+            summary = summarize_webpage_content(result['raw_content'][:MAX_CONTEXT_LENGTH])
+            _SUMMARY_CACHE[url] = summary
+        return url, result, summary
 
     with ThreadPoolExecutor(max_workers=min(MAX_SUMMARY_WORKERS, len(items))) as pool:
         prepared = list(pool.map(_summarize, items))

@@ -23,7 +23,7 @@ stages:
         api_key: "${TAVILY_API_KEY:tvly-xxx}"
         base_url: https://api.tavily.com
         # 单次搜索返回的结果数。每条结果消耗 1 次检索额度，并各送一次摘要调用
-        max_results: 5
+        max_results: 4
         topic: general
         include_raw_content: true
         timeout_seconds: 300

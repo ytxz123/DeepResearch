@@ -24,7 +24,7 @@ cp .env.example .env       # 填入 API Key，无需改任何 YAML
 uv run python run.py "帮我写一份关于英伟达最新 GPU 的调研报告"
 ```
 
-调研耗时随深度档位变化较大（`quick` 约 5–10 分钟，`standard` 约 30–60 分钟），完成后报告保存到 `results/output_report_YYYY-MM-DD.md`,并在终端打印开头摘要。
+调研耗时随深度档位变化较大（`quick` 约 10–20 分钟，`standard` 约 1–2 小时），完成后报告保存到 `results/output_report_YYYY-MM-DD.md`,并在终端打印开头摘要。
 
 常用选项:
 
@@ -41,9 +41,8 @@ uv run python run.py "问题" --log-level DEBUG            # 查看详细日志
 
 | 档位 | 主管轮数 | 并行子代理 | 适用场景 |
 |---|---|---|---|
-| `quick` | 3 | 2 | 先摸清方向，几分钟出结果 |
-| `standard`（默认） | 6 | 3 | 常规调研 |
-| `deep` | 10 | 3 | 尽可能穷尽，耗时与检索额度消耗最高 |
+| `quick` | 4 | 2 | 先摸清方向 |
+| `standard`（默认） | 7 | 3 | 常规调研 |
 
 > 轮数不宜设高：报告质量通常在前几轮就收敛，之后的迭代多为重复检索。每一轮由主管自行决定派发检索还是精修草稿，一轮里可以并行派发多个子代理，因此轮数不等于检索次数。
 
@@ -66,14 +65,14 @@ uv run python run.py "问题" --log-level DEBUG            # 查看详细日志
                        ├─ refine_draft_report  用新发现精修草稿
                        │    └─ Evaluator 三维打分（全面性/准确性/一致性）
                        └─ Red Team 对抗审查 ── 缺陷回注下一轮研究
-                          ↓ ResearchComplete / 达到迭代上限
+                          ↓ ResearchComplete / 轮数用完 / 模型不再调用工具
 ⑤ final_report_generation   综合全部发现，带引用成稿
    │
    ▼
 Markdown 调研报告（章节结构 + 引用编号 + 参考文献）
 ```
 
-> **一轮只精修一次**：主管一轮里可能发出多个 `refine_draft_report` 调用，但该工具的参数由框架注入、调用之间没有差异，系统只执行一次并复用结果。
+> **一轮只精修一次**：主管一轮里可能发出多个 `refine_draft_report` 调用，但该工具的参数由框架注入、调用之间没有差异，系统只执行一次并复用结果。本轮既没有新发现、也没有待处理的红队批评时，精修会被跳过——入参与上一轮完全相同，重写只会得到同一份草稿，评估与红队审查也随之跳过。
 
 | 角色 | 职责 |
 |---|---|

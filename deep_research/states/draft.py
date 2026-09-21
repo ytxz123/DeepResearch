@@ -8,7 +8,7 @@
 """
 
 import operator
-from typing_extensions import Optional, Annotated, List, Sequence
+from typing_extensions import Optional, Annotated, Sequence
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph import MessagesState

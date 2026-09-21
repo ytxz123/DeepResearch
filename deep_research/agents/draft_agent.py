@@ -11,7 +11,6 @@
 3. 报告草稿：生成一个初步的报告草稿
 """
 
-import os
 from typing_extensions import Literal
 from rich.markdown import Markdown
 from rich.console import Console
@@ -81,10 +80,12 @@ def write_draft_report(state: AgentState) -> Command[Literal["__end__"]]:
     draft_report = str(response.content or "").strip()
     logger.debug("write_draft_report produced draft_report length=%d", len(draft_report))
 
+    # 草稿不进主管历史：它每轮都在精修，历史里留一份只会越来越过时。
+    # 主管每轮由 supervisor 节点临时注入最新草稿。
     return {
         "research_brief": research_brief,
         "draft_report": draft_report,
-        "supervisor_messages": ["Here is the draft report: " + draft_report, research_brief]
+        "supervisor_messages": [research_brief]
     }
 
 

@@ -86,7 +86,7 @@ supervisor_model = get_chat_model("supervisor")
 supervisor_model_with_tools = supervisor_model.bind_tools(supervisor_tools)
 
 
-# 研究循环规模由深度档位决定（--depth quick|standard|deep）
+# 研究循环规模由深度档位决定（--depth quick|standard）
 _depth = resolve_depth()
 max_rounds = _depth["max_iterations"]                   # 主管决策轮数上限，每轮自行决定检索/精修/收尾
 max_concurrent_researchers = _depth["max_concurrent"]   # 单轮最大并行子代理数
@@ -113,6 +113,11 @@ async def supervisor(state: SupervisorState) -> Command[Literal["supervisor_tool
         max_rounds=max_rounds
     )
     messages = [SystemMessage(content=system_message)] + supervisor_messages
+
+    # 草稿每轮都在精修，历史里留一份只会越来越过时，所以只在本轮请求里带上最新版
+    draft_report = state.get("draft_report", "")
+    if draft_report:
+        messages.append(HumanMessage(content="Here is the draft report: " + draft_report))
 
     # 未处理的对抗性反馈注入本轮决策，形成自我纠正；
     # 精修产出新草稿后这些批评即被清空，不会在后续轮次里反复重放。
@@ -151,28 +156,22 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
     rounds = state.get("supervisor_rounds", 0)
     most_recent_message = supervisor_messages[-1]
 
-    think_tool_calls = [
-        tool_call for tool_call in most_recent_message.tool_calls
-        if tool_call["name"] == "think_tool"
-    ]
-    conduct_research_calls = [
-        tool_call for tool_call in most_recent_message.tool_calls
-        if tool_call["name"] == "ConductResearch"
-    ]
-    refine_report_calls = [
-        tool_call for tool_call in most_recent_message.tool_calls
-        if tool_call["name"] == "refine_draft_report"
-    ]
+    # 三个退出条件各管一件事：轮数用完、模型没给出工具调用、模型声明研究完成。
+    exceeded_rounds = rounds > max_rounds
+    no_tool_calls = not most_recent_message.tool_calls
+    research_complete = any(
+        tool_call["name"] == "ResearchComplete"
+        for tool_call in most_recent_message.tool_calls
+    )
 
-    # 只有派发检索或精修才算推进了研究。纯反思轮不占轮次，直接收尾离场。
-    made_progress = bool(conduct_research_calls or refine_report_calls)
-
-    if rounds >= max_rounds or not made_progress:
+    if exceeded_rounds or no_tool_calls or research_complete:
         logger.info(
-            "[REPORT] research loop finished (round=%d/%d, made_progress=%s)",
+            "[REPORT] research loop finished (round=%d/%d, exceeded_rounds=%s, no_tool_calls=%s, research_complete=%s)",
             rounds,
             max_rounds,
-            made_progress,
+            exceeded_rounds,
+            no_tool_calls,
+            research_complete,
         )
         update = {
             "notes": get_research_notes(supervisor_messages),
@@ -190,6 +189,19 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
         return Command(goto=END, update=update)
 
     else:
+        think_tool_calls = [
+            tool_call for tool_call in most_recent_message.tool_calls
+            if tool_call["name"] == "think_tool"
+        ]
+        conduct_research_calls = [
+            tool_call for tool_call in most_recent_message.tool_calls
+            if tool_call["name"] == "ConductResearch"
+        ]
+        refine_report_calls = [
+            tool_call for tool_call in most_recent_message.tool_calls
+            if tool_call["name"] == "refine_draft_report"
+        ]
+
         tool_messages = []
         updates = {}
         next_step = "supervisor"
@@ -265,50 +277,61 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                     )
 
                 # 只喂还没并入草稿的研究结果：更早的已经写进草稿了
-                findings = "\n".join(
-                    get_pending_research_notes(list(supervisor_messages) + tool_messages)
-                )
+                pending = get_pending_research_notes(list(supervisor_messages) + tool_messages)
 
-                new_draft = await _refine_draft_report_tool.ainvoke({
-                    "research_brief": state.get("research_brief", ""),
-                    "findings": findings,
-                    "draft_report": state.get("draft_report", "")
-                })
-
-                eval_result = await evaluate_draft_quality(
-                        research_brief=state.get("research_brief", ""),
-                        draft_report=new_draft
-                )
-                logger.info(
-                    "[EVALUATOR] comprehensive score=%f, accuracy score=%f, coherence score=%f",
-                    eval_result.comprehensiveness_score,
-                    eval_result.accuracy_score,
-                    eval_result.coherence_score
-                )
-                logger.info(f"[EVALUATOR] scoing reason: {eval_result.reason}")
-
-                avg_score = (eval_result.comprehensiveness_score + eval_result.accuracy_score + eval_result.coherence_score) / 3
-
-                # 把质量得分追加到tool message, 供Supervisor Agent参考
-                tool_messages.extend(
-                    ToolMessage(
-                        content=f"Draft Updated.\nQuality Score: {avg_score}/10.\nJudge Feedback: {eval_result.reason}",
-                        name=tool_call["name"],
-                        tool_call_id=tool_call["id"]
+                # 精修的入参由框架注入，没有新发现也没有待处理批评时与上一轮完全相同，
+                # 重写只会得到同一份草稿。跳过它：草稿、评估与红队审查都不必再跑一遍。
+                if not pending and not state.get("active_critiques"):
+                    logger.info("[SUPERVISOR] refine skipped: no new findings and no pending critique")
+                    tool_messages.extend(
+                        ToolMessage(
+                            content="本轮没有新的研究发现，草稿保持不变。",
+                            name=tool_call["name"],
+                            tool_call_id=tool_call["id"]
+                        )
+                        for tool_call in refine_report_calls
                     )
-                    for tool_call in refine_report_calls
-                )
+                else:
+                    new_draft = await _refine_draft_report_tool.ainvoke({
+                        "research_brief": state.get("research_brief", ""),
+                        "findings": "\n".join(pending),
+                        "draft_report": state.get("draft_report", "")
+                    })
 
-                updates["draft_report"] = new_draft
-                # 新草稿已产出，旧批评视为已消化，不再注入后续轮次
-                updates["active_critiques"] = []
+                    eval_result = await evaluate_draft_quality(
+                            research_brief=state.get("research_brief", ""),
+                            draft_report=new_draft
+                    )
+                    logger.info(
+                        "[EVALUATOR] comprehensive score=%f, accuracy score=%f, coherence score=%f",
+                        eval_result.comprehensiveness_score,
+                        eval_result.accuracy_score,
+                        eval_result.coherence_score
+                    )
+                    logger.info(f"[EVALUATOR] scoing reason: {eval_result.reason}")
 
-                # 低于质量阈值则置位，下一轮主管会收到修复提醒
-                if avg_score < min_need_repair_score:
-                    updates["needs_quality_repair"] = True
+                    avg_score = (eval_result.comprehensiveness_score + eval_result.accuracy_score + eval_result.coherence_score) / 3
 
-                # 转入 Red Team 对抗审查
-                next_step = "red_team"
+                    # 把质量得分追加到tool message, 供Supervisor Agent参考
+                    tool_messages.extend(
+                        ToolMessage(
+                            content=f"Draft Updated.\nQuality Score: {avg_score}/10.\nJudge Feedback: {eval_result.reason}",
+                            name=tool_call["name"],
+                            tool_call_id=tool_call["id"]
+                        )
+                        for tool_call in refine_report_calls
+                    )
+
+                    updates["draft_report"] = new_draft
+                    # 新草稿已产出，旧批评视为已消化，不再注入后续轮次
+                    updates["active_critiques"] = []
+
+                    # 低于质量阈值则置位，下一轮主管会收到修复提醒
+                    if avg_score < min_need_repair_score:
+                        updates["needs_quality_repair"] = True
+
+                    # 转入 Red Team 对抗审查
+                    next_step = "red_team"
 
             updates["supervisor_messages"] = tool_messages
 

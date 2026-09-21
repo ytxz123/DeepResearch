@@ -3,8 +3,7 @@
 #   Description: Red-Team智能体 
 #***********************************************
 
-from langchain_core.messages import SystemMessage, HumanMessage
-from langchain.chat_models import init_chat_model
+from langchain_core.messages import HumanMessage
 
 from deep_research.prompts import RED_TEAM_PROMPT
 from deep_research.llm import get_chat_model
@@ -54,12 +53,9 @@ async def red_team_node(state: SupervisorState) -> dict:
     )
     logger.info(f"[RED TEAM] {content}")
 
-    # 批评写入 active_critiques，同时以 SystemMessage 注入主管消息历史。
+    # 批评写入 active_critiques，由 supervisor 在下一轮决策前注入。
     # 这里是覆盖而非追加：只保留最新一条待处理批评，精修产出新草稿后即清空。
     return {
         "active_critiques": [critique],
         "critique_nums": critique_nums + 1,
-        "supervisor_messages": [
-            SystemMessage(content=f"ADVERSARIAL FEEDBACK DETECTED: {content}")
-        ]
     }
