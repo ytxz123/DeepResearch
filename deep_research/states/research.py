@@ -16,11 +16,9 @@ from langgraph.graph.message import add_messages
 
 class ResearcherState(TypedDict):
     """Research Agent的State，包含消息历史记录和元数据。
-    此状态跟踪Researcher的对话、已消耗的检索次数
-    以及正在研究的研究主题和压缩后的研究结果。
+    此状态跟踪Researcher的对话，以及正在研究的研究主题和压缩后的研究结果。
     """
     researcher_messages: Annotated[Sequence[BaseMessage], add_messages]
-    search_calls: int
     research_topic: str
     compressed_research: str
 

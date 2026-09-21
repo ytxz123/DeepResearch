@@ -10,7 +10,7 @@
 
 from typing_extensions import Literal
 from langgraph.graph import StateGraph, START, END
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
+from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, ToolMessage
 
 from deep_research.llm import get_chat_model
 from deep_research.states import ResearcherState, ResearcherOutputState
@@ -33,11 +33,9 @@ model = get_chat_model("researcher_main")
 model_with_tools = model.bind_tools(tools)
 compress_model = get_chat_model("researcher_compressor")
 
-# 单次研究允许的搜索次数上限。只计 tavily_search：think_tool 不产生检索开销，
-# 不该因反思挤占检索预算。
-# 子图会继承 run.py 的 recursion_limit（120 步，但用自己的步数计数），撞上它是抛
-# GraphRecursionError、整路子代理的结果被 gather 丢弃，所以这里要留一个能优雅收尾的上限。
-max_search_calls = 40
+# 检索次数不设代码上限，由提示词里的停止条件自行收敛。
+# 唯一的兜底是子图继承的 recursion_limit（run.py 设 120 步），撞上会抛
+# GraphRecursionError，该路子代理的结果被 gather 换成一条失败说明。
 
 
 # ===== AGENT NODES =====
@@ -49,26 +47,17 @@ def llm_call(state: ResearcherState):
     logger.debug("llm_call invoked with %d messages", msg_count)
 
     # 组装系统提示词（其中的 {date} 等占位符需在此展开）
-    system_message = RESEARCH_AGENT_PROMPT.format(
-        date=get_today_str(),
-        max_search_calls=max_search_calls,
-    )
-
-    # 检索预算用尽后不再挂工具，模型只能给出结论，
-    # 避免留在历史里没人应答的 tool_calls。
-    exhausted = state.get("search_calls", 0) >= max_search_calls
-    active_model = model if exhausted else model_with_tools
+    system_message = RESEARCH_AGENT_PROMPT.format(date=get_today_str())
 
     # 调用大模型
-    response = active_model.invoke(
+    response = model_with_tools.invoke(
         [SystemMessage(content=system_message)] + state["researcher_messages"]
     )
 
     logger.info(
-        "llm_call produced response tool_calls=%s num_tool_calls=%d (exhausted=%s)",
+        "llm_call produced response tool_calls=%s num_tool_calls=%d",
         bool(response.tool_calls),
         len(response.tool_calls or []),
-        exhausted,
     )
     return {
         "researcher_messages": [response]
@@ -101,19 +90,47 @@ def tool_node(state: ResearcherState):
         ) for observation, tool_call in zip(observations, tool_calls)
     ]
 
-    searches = sum(1 for tool_call in tool_calls if tool_call["name"] == _tavily_search_tool.name)
-
     return {
         "researcher_messages": tool_outputs,
-        "search_calls": state.get("search_calls", 0) + searches,
     }
+
+def _drop_think_tool(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """剔除 think_tool 的调用与结果。
+
+    压缩提示词明确要求忽略 think_tool，把反思发过去只是白付输入费。
+    调用与结果必须成对删除：只删 ToolMessage 会留下悬空的 tool_call，接口会报错。
+    """
+
+    think_ids = {
+        call["id"]
+        for msg in messages
+        for call in (getattr(msg, "tool_calls", None) or [])
+        if call["name"] == "think_tool"
+    }
+    if not think_ids:
+        return list(messages)
+
+    cleaned: list[BaseMessage] = []
+    for msg in messages:
+        if isinstance(msg, ToolMessage) and msg.tool_call_id in think_ids:
+            continue
+        tool_calls = getattr(msg, "tool_calls", None)
+        if tool_calls:
+            kept = [call for call in tool_calls if call["id"] not in think_ids]
+            if not kept and not msg.content:
+                continue  # 只剩空壳的思考消息，留着没有意义
+            msg = msg.model_copy(update={"tool_calls": kept})
+        cleaned.append(msg)
+    return cleaned
+
 
 def compress_research(state: ResearcherState) -> dict:
     """把研究发现压缩为高价值摘要，只保留有用信息."""
 
     # 组装prompt
     system_message = COMPRESS_RESEARCH_SYSTEM_PROMPT.format(date=get_today_str())
-    messages = [SystemMessage(content=system_message)] + state.get("researcher_messages", []) +\
+    history = _drop_think_tool(list(state.get("researcher_messages", [])))
+    messages = [SystemMessage(content=system_message)] + history +\
             [HumanMessage(content=COMPRESS_RESEARCH_HUMAN_PROMPT.format(research_topic=state.get("research_topic", "")))]
     logger.info("compress_research invoked with %d messages", len(messages))
 
